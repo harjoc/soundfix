@@ -21,6 +21,7 @@ private slots:
 private:
     Ui::SoundFix *ui;
 
+    bool error(const QString &title, const QString &text);
     void identifyAudio();
     bool SoundFix::extractAudio();
 
