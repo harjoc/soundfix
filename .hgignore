@@ -1,0 +1,11 @@
+syntax: glob
+
+data
+tools
+debug
+release
+Makefile*
+*.user
+*.log
+*.pdb
+ui_*.h
