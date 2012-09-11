@@ -2,10 +2,14 @@
 #define SOUNDFIX_H
 
 #include <QMainWindow>
+#include <QBuffer>
 
 namespace Ui {
 class SoundFix;
 }
+
+class QNetworkReply;
+class QNetworkAccessManager;
 
 class SoundFix : public QMainWindow
 {
@@ -17,15 +21,36 @@ public:
     
 private slots:
     void on_browseBtn_clicked();
+    void httpChartsFinished(QNetworkReply*);
+    void httpSearchFinished(QNetworkReply*);
 
 private:
     Ui::SoundFix *ui;
 
-    bool error(const QString &title, const QString &text);
+    void error(const QString &title, const QString &text);
     void identifyAudio();
-    bool SoundFix::extractAudio();
+    void continueIdentification();
+    void extractAudio();
+    void collectCookies(QNetworkReply *reply);
+    void getSession();
+    void postSample();
 
+    int substep;
     QString recordingName;
+    QNetworkAccessManager* httpChartsMgr;
+    QNetworkAccessManager* httpSearchMgr;
+
+    // cookies
+    QString phpsessid;
+    QString partners;
+    QString recent_searches;
+    QString num_searches;
+    QString userAgent;
+
+    QBuffer buffer;
+    QByteArray bufferData;
+
+
 };
 
 #endif // SOUNDFIX_H
