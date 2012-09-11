@@ -9,19 +9,19 @@
 #include <QNetworkReply>
 #include <QNetworkAccessManager>
 #include <QNetworkCookie>
-//QMessageBox::information(this, "title", QDir::current().absolutePath(), QMessageBox::Ok);
+#include <QTcpSocket>
+
 
 #pragma warning(disable:4482) // nonstandard extension: enum used in qualified name
 
 SoundFix::SoundFix(QWidget *parent) :
     QMainWindow(parent),
     ui(new Ui::SoundFix),
-    httpChartsMgr(0),
-    httpSearchMgr(0)
+    sock(0)
 {
     ui->setupUi(this);
 
-    partners = "{\"installed\":[]}";
+    partners = "%7B%22installed%22%3A%5B%5D%7D";
 
     recordingName = "data/kong.3gp";
     ui->videoEdit->setText(recordingName);
@@ -35,6 +35,8 @@ SoundFix::~SoundFix()
 
 void SoundFix::on_browseBtn_clicked()
 {
+    // TODO should abort first, based on substep
+
     recordingName = QFileDialog::getOpenFileName(this, "Open Video", QString());
     if (recordingName.isNull())
         return;
@@ -221,7 +223,7 @@ void SoundFix::extractAudio()
     continueIdentification();
 }
 
-void SoundFix::collectCookies(QNetworkReply *reply)
+/*void SoundFix::collectCookies(QNetworkReply *reply)
 {
     QVariant v = reply->header(QNetworkRequest::SetCookieHeader);
     QList<QNetworkCookie> headers = qvariant_cast<QList<QNetworkCookie> >(v);
@@ -239,9 +241,9 @@ void SoundFix::collectCookies(QNetworkReply *reply)
     printf("phpsessid: %s\n", phpsessid.toAscii().data());
     printf("num_searches_cookie: %s\n", num_searches.toAscii().data());
     printf("recent_searches_cookie: %s\n", recent_searches.toAscii().data());
-}
+}*/
 
-void SoundFix::httpChartsFinished(QNetworkReply*reply)
+/*void SoundFix::httpChartsFinished(QNetworkReply*reply)
 {
     QVariant statusCodeV = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute);
     int code = statusCodeV.isNull() ? 0 : statusCodeV.toInt();
@@ -276,16 +278,184 @@ void SoundFix::httpSearchFinished(QNetworkReply*reply)
     //substep++;
     //continueIdentification();
 }
+*/
+
+void SoundFix::sockConnected()
+{
+    if (substep == IDENTIFY_GET_SESSION) {
+        QString cookies = "partners_cookie=" + partners;
+
+        QString req = QString(
+                "GET /v2/?method=getAvailableCharts&from=charts HTTP/1.1\r\n"
+                "Host: patraulea.com:80\r\n"
+                "Connection: Keep-Alive\r\n"
+                "Cookie: %1\r\n"
+                "Cookie2: $Version=1\r\n"
+                "User-Agent: %2\r\n"
+                "\r\n").arg(cookies, userAgent);
+
+        contentLength = -1;
+        sockBuf.truncate(0);
+        sock->write(req.toAscii().data());
+    } else if (substep == IDENTIFY_POST_SAMPLE) {            
+        QString cookies = "partners_cookie=" + partners;
+        cookies += "; PHPSESSID=" + phpsessid;
+
+        if (!recent_searches.isEmpty())
+            cookies += "; recent_searches_cookie_1=" + recent_searches;
+
+        if (!recent_searches.isEmpty())
+            cookies += "; num_searches_cookie=" + num_searches;
+
+        QString req = QString(
+                "POST /v2/?method=search&type=identify&url=sh_button&prebuffer=0 HTTP/1.1\r\n"
+                "Host: patraulea.com:80\r\n"
+                //"Transfer-Encoding: chunked\r\n"
+                "Content-Length: 0\r\n"
+                "User-Agent: %1\r\n"
+                "Cookie: %2\r\n"
+                "\r\n").arg(userAgent, cookies);
+
+        contentLength = -1;
+        sockBuf.truncate(0);
+        sock->write(req.toAscii().data());
+
+        printf("sent search headers\n");
+    }
+}
+
+void SoundFix::sockReadyRead()
+{
+    if (substep != IDENTIFY_GET_SESSION &&
+        substep != IDENTIFY_POST_SAMPLE)
+    {
+        error("Network error", "Unexpected response from identification service.");
+        sock->abort();
+        return;
+    }
+
+    QByteArray chunk = sock->readAll();
+    printf("received: %d\n", chunk.length());
+    sockBuf.append(chunk);
+
+    if (contentLength < 0) {
+        int rnrn = sockBuf.indexOf("\r\n\r\n");
+        if (rnrn < 0) return;
+
+        int clenPos = sockBuf.indexOf("\r\nContent-Length: ", 0, Qt::CaseInsensitive);
+        if (clenPos < 0 || clenPos > rnrn) {
+            error("Song identification error", "Invalid response from identification service.");
+            sock->abort();
+            return;
+        }
+
+        clenPos += strlen("\r\nContent-Length: ");
+        int rn = sockBuf.indexOf("\r\n", clenPos);
+        QString clenStr = sockBuf.mid(clenPos, rn-clenPos);
+
+        contentLength = clenStr.toInt();
+        printf("content-length: %d\n", contentLength);
+
+        headers = sockBuf.left(rnrn+2);
+        sockBuf = sockBuf.right(sockBuf.length() - (rnrn+4));
+    }
+
+    printf("have: %d\n", sockBuf.length());
+    if (sockBuf.length() < contentLength)
+        return;
+
+    sockBuf.truncate(contentLength);
+    printf("---\n%s\n---\n", sockBuf.toAscii().data());
+    sock->abort();
+
+    if (substep == IDENTIFY_GET_SESSION)
+        processSessionResponse();
+    else if (substep == IDENTIFY_POST_SAMPLE)
+        processSearchResponse();
+}
+
+void SoundFix::collectCookies()
+{
+    int hdrpos = 0;
+
+    for (;;) {
+        hdrpos = headers.indexOf("\r\nSet-Cookie: ", hdrpos, Qt::CaseInsensitive);
+        if (hdrpos < 0) break;
+        hdrpos += strlen("\r\nSet-Cookie: ");
+
+        int prn = headers.indexOf("\r\n", hdrpos);
+
+        int p0 = prn;
+        int p1 = headers.indexOf(";", hdrpos);
+        int p2 = headers.indexOf(" ", hdrpos);
+        if (p1>0 && p1 < p0) p0 = p1;
+        if (p2>0 && p2 < p1) p0 = p2;
+
+        int peq = headers.indexOf("=", hdrpos);
+        if (peq < 0) break;
+
+        QString name  = headers.mid(hdrpos, peq-hdrpos);
+        QString value = headers.mid(peq+1, p0-(peq+1));
+
+        printf("%s is [%s]\n", name.toAscii().data(), value.toAscii().data());
+
+        if (name == "PHPSESSID") phpsessid = value;
+        if (name == "recent_searches_cookie_1") recent_searches = value;
+        if (name == "num_searches_cookie") num_searches = value;
+
+        hdrpos = prn;
+    }
+}
+
+void SoundFix::processSessionResponse()
+{
+    collectCookies();
+
+    if (phpsessid.isEmpty())
+        { error("Song identification error", "Cannot get identification session."); return; }
+
+    substep++;
+    continueIdentification();
+    return;
+}
+
+void SoundFix::processSearchResponse()
+{
+    collectCookies();
+}
+
+void SoundFix::sockError(QAbstractSocket::SocketError)
+{
+    if (substep == IDENTIFY_GET_SESSION)
+        error("Network error", "Cannot get song charts information.");
+    else if (substep == IDENTIFY_GET_SESSION)
+        error("Network error", "Cannot do automatic song identification.");
+
+    sock->abort();
+}
+
+void SoundFix::initSock()
+{
+    if (sock) {
+        sock->abort();
+    } else {
+        sock = new QTcpSocket(this);
+        connect(sock, SIGNAL(readyRead()), this, SLOT(sockReadyRead()));
+        connect(sock, SIGNAL(connected()), this, SLOT(sockConnected()));
+        connect(sock, SIGNAL(error(QAbstractSocket::SocketError)),
+                     this, SLOT(sockError(QAbstractSocket::SocketError)));
+    }
+}
 
 void SoundFix::getSession()
 {
-    printf("getting charts\n");
-
     if (!phpsessid.isEmpty()) {
         substep++;
         continueIdentification();
         return;
     }
+
+    printf("getting charts\n");
 
     QString uid;
     for (int i=0; i<16; i++)
@@ -304,56 +474,14 @@ void SoundFix::getSession()
         "NETWORK=WIFI")
         .arg(uid);
 
-    QNetworkRequest req;
-    req.setUrl(QUrl("http://patraulea.com:80/v2/?method=getAvailableCharts&from=charts"));
-    req.setRawHeader("Accept-Encoding", QByteArray());
-    req.setRawHeader("Accept-Language", QByteArray());
-    req.setRawHeader("User-Agent", QByteArray(userAgent.toAscii()));
-
-    QString cookies = "partners_cookie=" + QUrl::toPercentEncoding(partners);
-
-    req.setRawHeader("Cookie", QByteArray(cookies.toAscii()));
-    req.setRawHeader("Cookie2", "$Version=1");
-
-    delete httpChartsMgr;
-    httpChartsMgr = new QNetworkAccessManager(this);
-    QObject::connect(httpChartsMgr, SIGNAL(finished(QNetworkReply*)),
-             this, SLOT(httpChartsFinished(QNetworkReply*)));
-
-    httpChartsMgr->get(req);
-    // should keep the reply ptr so we can cancel it from the progress
+    initSock();
+    sock->connectToHost("patraulea.com", 80);
 }
 
 void SoundFix::postSample()
 {
     printf("posting sample\n");
 
-    QString cookies;
-    cookies += "partners_cookie=" + QUrl::toPercentEncoding(partners);
-    cookies += "; PHPSESSID=" + QUrl::toPercentEncoding(phpsessid);
-
-    if (!recent_searches.isEmpty())
-        cookies += "; recent_searches_cookie_1=" + QUrl::toPercentEncoding(recent_searches);
-
-    if (!recent_searches.isEmpty())
-        cookies += "; num_searches_cookie=" + QUrl::toPercentEncoding(num_searches);
-
-    QNetworkRequest req;
-    req.setUrl(QUrl("http://patraulea.com:80/v2/?method=search&type=identify&url=sh_button&prebuffer=0"));
-    req.setRawHeader("Accept-Encoding", QByteArray());
-    req.setRawHeader("Accept-Language", QByteArray());
-    req.setRawHeader("Transfer-Encoding", "chunked");
-    req.setRawHeader("User-Agent", QByteArray(userAgent.toAscii()));
-    req.setRawHeader("Cookie", QByteArray(cookies.toAscii()));
-
-    delete httpSearchMgr;
-    httpSearchMgr = new QNetworkAccessManager(this);
-    QObject::connect(httpSearchMgr, SIGNAL(finished(QNetworkReply*)),
-             this, SLOT(httpSearchFinished(QNetworkReply*)));
-
-    // now the speex data
-
-    bufferData.setRawData("salut", 5);
-    buffer.setData(bufferData);
-    httpSearchMgr->post(req, &buffer);
+    initSock();
+    sock->connectToHost("patraulea.com", 80);
 }
