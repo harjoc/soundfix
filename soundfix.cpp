@@ -12,14 +12,20 @@
 #include <QTcpSocket>
 
 
-#pragma warning(disable:4482) // nonstandard extension: enum used in qualified name
-
 SoundFix::SoundFix(QWidget *parent) :
     QMainWindow(parent),
-    ui(new Ui::SoundFix),
-    sock(0)
+    ui(new Ui::SoundFix)
 {
     ui->setupUi(this);
+
+    sock = new QTcpSocket(this);
+    connect(sock, SIGNAL(readyRead()), this, SLOT(sockReadyRead()));
+    connect(sock, SIGNAL(connected()), this, SLOT(sockConnected()));
+    connect(sock, SIGNAL(error(QAbstractSocket::SocketError)),
+                 this, SLOT(sockError(QAbstractSocket::SocketError)));
+
+    speexTimer = new QTimer(this);
+    connect(speexTimer, SIGNAL(timeout()), this, SLOT(sendSpeexChunk()));
 
     partners = "%7B%22installed%22%3A%5B%5D%7D";
 
@@ -33,9 +39,16 @@ SoundFix::~SoundFix()
     delete ui;
 }
 
+void SoundFix::cleanupIdentification()
+{
+    speexTimer->stop();
+    speexFile.close();
+    sock->abort();
+}
+
 void SoundFix::on_browseBtn_clicked()
 {
-    // TODO should abort first, based on substep
+    cleanupIdentification();
 
     recordingName = QFileDialog::getOpenFileName(this, "Open Video", QString());
     if (recordingName.isNull())
@@ -223,63 +236,6 @@ void SoundFix::extractAudio()
     continueIdentification();
 }
 
-/*void SoundFix::collectCookies(QNetworkReply *reply)
-{
-    QVariant v = reply->header(QNetworkRequest::SetCookieHeader);
-    QList<QNetworkCookie> headers = qvariant_cast<QList<QNetworkCookie> >(v);
-    QList<QNetworkCookie>::const_iterator iter;
-
-    for (iter = headers.begin(); iter != headers.end(); ++iter) {
-        QString name = (*iter).name();
-        QString value = (*iter).value();
-
-        if (name == "PHPSESSID") phpsessid = value;
-        if (name == "num_searches_cookie") num_searches = value;
-        if (name == "recent_searches_cookie_1") recent_searches = value;
-    }
-
-    printf("phpsessid: %s\n", phpsessid.toAscii().data());
-    printf("num_searches_cookie: %s\n", num_searches.toAscii().data());
-    printf("recent_searches_cookie: %s\n", recent_searches.toAscii().data());
-}*/
-
-/*void SoundFix::httpChartsFinished(QNetworkReply*reply)
-{
-    QVariant statusCodeV = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute);
-    int code = statusCodeV.isNull() ? 0 : statusCodeV.toInt();
-    printf("getCharts status: %d\n", code);
-    if (code != 200) {
-        error("Song identification error", QString("Charts service returned code %1").arg(code));
-        return;
-    }
-
-    collectCookies(reply);
-    if (phpsessid.isEmpty()) {
-        error("Song identification error", "Could not obtain identification session.");
-        return;
-    }
-
-    substep++;
-    continueIdentification();
-}
-
-void SoundFix::httpSearchFinished(QNetworkReply*reply)
-{
-    QVariant statusCodeV = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute);
-    int code = statusCodeV.isNull() ? 0 : statusCodeV.toInt();
-    printf("search status: %d\n", code);
-    if (code != 200) {
-        error("Song identification error", QString("Search service returned code %1").arg(code));
-        return;
-    }
-
-    collectCookies(reply);
-
-    //substep++;
-    //continueIdentification();
-}
-*/
-
 void SoundFix::sockConnected()
 {
     if (substep == IDENTIFY_GET_SESSION) {
@@ -311,7 +267,7 @@ void SoundFix::sockConnected()
                 "POST /v2/?method=search&type=identify&url=sh_button&prebuffer=0 HTTP/1.1\r\n"
                 "Host: patraulea.com:80\r\n"
                 //"Transfer-Encoding: chunked\r\n"
-                "Content-Length: 0\r\n"
+                "Content-Length: 0\r\n" // TODO patraulea
                 "User-Agent: %1\r\n"
                 "Cookie: %2\r\n"
                 "\r\n").arg(userAgent, cookies);
@@ -320,7 +276,40 @@ void SoundFix::sockConnected()
         sockBuf.truncate(0);
         sock->write(req.toAscii().data());
 
-        printf("sent search headers\n");
+        printf("sending speex data\n");
+
+        //speexTimer->start(2150);
+    }
+}
+
+void SoundFix::sendSpeexChunk()
+{
+    if (!speexFile.isOpen()) {
+        speexFile.setFileName("data/sample.spx");
+        if (!speexFile.open(QFile::ReadOnly)) {
+            error("Error opening audio sample", "Cannot open audio sample for identification.");
+            cleanupIdentification();
+            return;
+        }
+    }
+
+    char burst[5*1024];
+    int blen = speexFile.read(burst, sizeof(burst));
+    if (blen < 0) blen = 0;
+
+    printf("%d bytes to send\n", blen);
+    if (blen==0)
+        speexTimer->stop();
+
+    while (blen > 0) {
+        int clen = 2*1024;
+        if (clen > blen)
+            clen = blen;
+        sock->write(QString("%1\r\n").arg(clen, 0, 16).toAscii().data());
+        sock->write(burst, clen);
+        sock->write("\r\n");
+        memmove(burst, burst+clen, blen-clen);
+        blen -= clen;
     }
 }
 
@@ -330,22 +319,30 @@ void SoundFix::sockReadyRead()
         substep != IDENTIFY_POST_SAMPLE)
     {
         error("Network error", "Unexpected response from identification service.");
-        sock->abort();
+        cleanupIdentification();
         return;
     }
 
     QByteArray chunk = sock->readAll();
-    printf("received: %d\n", chunk.length());
+    //printf("received: %d\n", chunk.length());
     sockBuf.append(chunk);
 
     if (contentLength < 0) {
         int rnrn = sockBuf.indexOf("\r\n\r\n");
         if (rnrn < 0) return;
 
+        if (!sockBuf.startsWith("HTTP/1.0 200 ") &&
+            !sockBuf.startsWith("HTTP/1.1 200 "))
+        {
+            error("Song identification error", "Identification service returned an error.");
+            cleanupIdentification();
+            return;
+        }
+
         int clenPos = sockBuf.indexOf("\r\nContent-Length: ", 0, Qt::CaseInsensitive);
         if (clenPos < 0 || clenPos > rnrn) {
             error("Song identification error", "Invalid response from identification service.");
-            sock->abort();
+            cleanupIdentification();
             return;
         }
 
@@ -354,19 +351,19 @@ void SoundFix::sockReadyRead()
         QString clenStr = sockBuf.mid(clenPos, rn-clenPos);
 
         contentLength = clenStr.toInt();
-        printf("content-length: %d\n", contentLength);
+        //printf("content-length: %d\n", contentLength);
 
         headers = sockBuf.left(rnrn+2);
         sockBuf = sockBuf.right(sockBuf.length() - (rnrn+4));
     }
 
-    printf("have: %d\n", sockBuf.length());
+    //printf("have: %d\n", sockBuf.length());
     if (sockBuf.length() < contentLength)
         return;
 
     sockBuf.truncate(contentLength);
     printf("---\n%s\n---\n", sockBuf.toAscii().data());
-    sock->abort();
+    cleanupIdentification();
 
     if (substep == IDENTIFY_GET_SESSION)
         processSessionResponse();
@@ -422,6 +419,33 @@ void SoundFix::processSessionResponse()
 void SoundFix::processSearchResponse()
 {
     collectCookies();
+
+    cleanupIdentification();
+
+    int trackPos  = sockBuf.indexOf("track_name=\"");
+    int artistPos = sockBuf.indexOf("artist_name=\"");
+    int trackEnd;
+    int artistEnd;
+
+    if (trackPos >= 0) {
+        trackPos += strlen("track_name=\"");
+        trackEnd = sockBuf.indexOf("\">", trackPos);
+    }
+
+    if (artistPos >= 0) {
+        artistPos += strlen("artist_name=\"");
+        artistEnd = sockBuf.indexOf("\">", artistPos);
+    }
+
+    if (trackPos<0 || artistPos<0 || trackEnd<0 || artistEnd<0) {
+        error("Song identification not available", "Could not identify this song automatically.");
+        return;
+    }
+
+    QString track  = sockBuf.mid(trackPos,  trackEnd-trackPos);
+    QString artist = sockBuf.mid(artistPos, artistEnd-artistPos);
+
+    ui->songEdit->setText(QString("%1 - %2").arg(artist, track));
 }
 
 void SoundFix::sockError(QAbstractSocket::SocketError)
@@ -431,20 +455,7 @@ void SoundFix::sockError(QAbstractSocket::SocketError)
     else if (substep == IDENTIFY_GET_SESSION)
         error("Network error", "Cannot do automatic song identification.");
 
-    sock->abort();
-}
-
-void SoundFix::initSock()
-{
-    if (sock) {
-        sock->abort();
-    } else {
-        sock = new QTcpSocket(this);
-        connect(sock, SIGNAL(readyRead()), this, SLOT(sockReadyRead()));
-        connect(sock, SIGNAL(connected()), this, SLOT(sockConnected()));
-        connect(sock, SIGNAL(error(QAbstractSocket::SocketError)),
-                     this, SLOT(sockError(QAbstractSocket::SocketError)));
-    }
+    cleanupIdentification();
 }
 
 void SoundFix::getSession()
@@ -474,7 +485,7 @@ void SoundFix::getSession()
         "NETWORK=WIFI")
         .arg(uid);
 
-    initSock();
+    sock->abort();
     sock->connectToHost("patraulea.com", 80);
 }
 
@@ -482,6 +493,6 @@ void SoundFix::postSample()
 {
     printf("posting sample\n");
 
-    initSock();
+    sock->abort();
     sock->connectToHost("patraulea.com", 80);
 }

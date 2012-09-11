@@ -2,8 +2,9 @@
 #define SOUNDFIX_H
 
 #include <QMainWindow>
-#include <QByteArray>
 #include <QTcpSocket>
+#include <QTimer>
+#include <QFile>
 
 namespace Ui {
 class SoundFix;
@@ -25,15 +26,16 @@ private slots:
     void sockConnected();
     void sockReadyRead();
     void sockError(QAbstractSocket::SocketError);
+    void sendSpeexChunk();
 
 private:
     Ui::SoundFix *ui;
 
     void error(const QString &title, const QString &text);
     void identifyAudio();
+    void cleanupIdentification();
     void continueIdentification();
     void extractAudio();
-    void initSock();
     void collectCookies();
     void getSession();
     void postSample();
@@ -57,6 +59,9 @@ private:
     QString headers;
     QString sockBuf;
     int contentLength;
+
+    QTimer *speexTimer;
+    QFile speexFile;
 };
 
 #endif // SOUNDFIX_H
