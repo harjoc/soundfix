@@ -11,6 +11,7 @@
 #include <QNetworkCookie>
 #include <QTcpSocket>
 #include <QTime>
+#include <QThread>
 
 //#define USE_MIDOMI
 
@@ -35,7 +36,7 @@ SoundFix::SoundFix(QWidget *parent) :
     partners = "%7B%22installed%22%3A%5B%5D%7D";
     loadSession();
 
-    recordingName = "data/kong.3gp";
+    recordingName = "data/tefalta.3gp";
     ui->videoEdit->setText(recordingName);
     identifyAudio();
 }
@@ -114,12 +115,21 @@ void SoundFix::identifyAudio()
     continueIdentification();
 }
 
+class Thr : public QThread {
+    public: static void msleep(unsigned long msecs) { QThread::msleep(msecs); }
+};
+
 void SoundFix::continueIdentification()
 {
     switch (substep) {
         case IDENTIFY_EXTRACT_AUDIO: extractAudio(); return;
         case IDENTIFY_GET_SESSION: getSession(); return;
-        case IDENTIFY_POST_SAMPLE: postSample(); return;
+        case IDENTIFY_POST_SAMPLE:
+            #ifdef USE_MIDOMI
+            Thr::msleep(2500);
+            #endif
+            postSample();
+            return;
     }
 }
 
