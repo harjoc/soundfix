@@ -32,6 +32,7 @@ private:
     Ui::SoundFix *ui;
 
     void error(const QString &title, const QString &text);
+    void loadSession();
     void identifyAudio();
     void cleanupIdentification();
     void continueIdentification();

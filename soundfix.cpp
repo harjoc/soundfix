@@ -10,13 +10,18 @@
 #include <QNetworkAccessManager>
 #include <QNetworkCookie>
 #include <QTcpSocket>
+#include <QTime>
 
+//#define USE_MIDOMI
 
 SoundFix::SoundFix(QWidget *parent) :
     QMainWindow(parent),
     ui(new Ui::SoundFix)
 {
     ui->setupUi(this);
+
+    QTime time = QTime::currentTime();
+    qsrand((uint)time.msec());
 
     sock = new QTcpSocket(this);
     connect(sock, SIGNAL(readyRead()), this, SLOT(sockReadyRead()));
@@ -28,10 +33,42 @@ SoundFix::SoundFix(QWidget *parent) :
     connect(speexTimer, SIGNAL(timeout()), this, SLOT(sendSpeexChunk()));
 
     partners = "%7B%22installed%22%3A%5B%5D%7D";
+    loadSession();
 
     recordingName = "data/kong.3gp";
     ui->videoEdit->setText(recordingName);
     identifyAudio();
+}
+
+void SoundFix::loadSession()
+{
+    QFile sessionFile("data/session.txt");
+    if (!sessionFile.open(QFile::ReadOnly))
+        return;
+
+    printf("loading session\n");
+
+    for (;;) {
+        QString line = sessionFile.readLine(1024).trimmed();
+        if (line.isEmpty()) break;
+
+        int sp = line.indexOf(' ');
+        if (sp<0) break;
+
+        QString name = line.left(sp);
+        QString value = line.right(line.length() - (sp+1));
+
+        printf("%s is [%s]\n", name.toAscii().data(), value.toAscii().data());
+
+        if      (name == "userAgent") userAgent = value;
+        else if (name == "PHPSESSID") phpsessid = value;
+        else if (name == "recent_searches_cookie_1") recent_searches = value;
+        else if (name == "num_searches_cookie") num_searches = value;
+        else if (name == "partners_cookie") partners = value;
+        else printf("unknown session var: %s\n", name.toAscii().data());
+    }
+
+    sessionFile.close();
 }
 
 SoundFix::~SoundFix()
@@ -243,7 +280,11 @@ void SoundFix::sockConnected()
 
         QString req = QString(
                 "GET /v2/?method=getAvailableCharts&from=charts HTTP/1.1\r\n"
+                #ifdef USE_MIDOMI
+                "Host: api.midomi.com:443\r\n"
+                #else
                 "Host: patraulea.com:80\r\n"
+                #endif
                 "Connection: Keep-Alive\r\n"
                 "Cookie: %1\r\n"
                 "Cookie2: $Version=1\r\n"
@@ -265,9 +306,13 @@ void SoundFix::sockConnected()
 
         QString req = QString(
                 "POST /v2/?method=search&type=identify&url=sh_button&prebuffer=0 HTTP/1.1\r\n"
+                #ifdef USE_MIDOMI
+                "Host: api.midomi.com:443\r\n"
+                "Transfer-Encoding: chunked\r\n"
+                #else
                 "Host: patraulea.com:80\r\n"
-                //"Transfer-Encoding: chunked\r\n"
-                "Content-Length: 0\r\n" // TODO patraulea
+                "Content-Length: 0\r\n"
+                #endif
                 "User-Agent: %1\r\n"
                 "Cookie: %2\r\n"
                 "\r\n").arg(userAgent, cookies);
@@ -278,7 +323,9 @@ void SoundFix::sockConnected()
 
         printf("sending speex data\n");
 
-        //speexTimer->start(2150);
+        #ifdef USE_MIDOMI
+        speexTimer->start(2150);
+        #endif
     }
 }
 
@@ -402,6 +449,18 @@ void SoundFix::collectCookies()
 
         hdrpos = prn;
     }
+
+    QFile sessionFile("data/session.txt");
+    if (!sessionFile.open(QFile::WriteOnly))
+        return;
+
+    sessionFile.write(QString("userAgent %1\n").arg(userAgent).toAscii());
+    sessionFile.write(QString("PHPSESSID %1\n").arg(phpsessid).toAscii());
+    sessionFile.write(QString("recent_searches_cookie_1 %1\n").arg(recent_searches).toAscii());
+    sessionFile.write(QString("num_searches_cookie %1\n").arg(num_searches).toAscii());
+    sessionFile.write(QString("partners_cookie %1\n").arg(partners).toAscii());
+
+    sessionFile.close();
 }
 
 void SoundFix::processSessionResponse()
@@ -470,7 +529,7 @@ void SoundFix::getSession()
 
     QString uid;
     for (int i=0; i<16; i++)
-        uid.append((rand()%2) ? ('0' + rand()%10) : ('a' + rand()%6));
+        uid.append((qrand()%2) ? ('0' + qrand()%10) : ('a' + qrand()%6));
 
     userAgent = QString(
         "AppNumber=31 "
@@ -486,7 +545,12 @@ void SoundFix::getSession()
         .arg(uid);
 
     sock->abort();
+
+    #ifdef USE_MIDOMI
+    sock->connectToHost("api.midomi.com", 443);
+    #else
     sock->connectToHost("patraulea.com", 80);
+    #endif
 }
 
 void SoundFix::postSample()
@@ -494,5 +558,10 @@ void SoundFix::postSample()
     printf("posting sample\n");
 
     sock->abort();
+
+    #ifdef USE_MIDOMI
+    sock->connectToHost("search.midomi.com", 443);
+    #else
     sock->connectToHost("patraulea.com", 80);
+    #endif
 }
