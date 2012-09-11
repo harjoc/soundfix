@@ -1,0 +1,1 @@
+youtube-dl.exe "ytsearch10:calambuco te falta ritmo" -g -e --get-thumbnail | tee search.txt

@@ -135,7 +135,7 @@
       <item>
        <widget class="QLabel" name="songLabel">
         <property name="text">
-         <string>&lt;a href=&quot;http://patraulea.com&quot;&gt;Calambuco - Te Falta Ritmo&lt;/a&gt;</string>
+         <string>-</string>
         </property>
         <property name="openExternalLinks">
          <bool>true</bool>

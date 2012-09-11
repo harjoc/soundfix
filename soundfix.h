@@ -28,6 +28,8 @@ private slots:
     void sockError(QAbstractSocket::SocketError);
     void sendSpeexChunk();
 
+    void on_searchBtn_clicked();
+
 private:
     Ui::SoundFix *ui;
 

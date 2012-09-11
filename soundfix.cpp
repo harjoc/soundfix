@@ -575,3 +575,28 @@ void SoundFix::postSample()
     sock->connectToHost("patraulea.com", 80);
     #endif
 }
+
+void SoundFix::on_searchBtn_clicked()
+{
+    QByteArray songName = ui->songEdit->text().toAscii();
+    QString cleanSongName;
+    QString songQuery;
+
+    for (int i=0; i<songName.length(); i++) {
+        int c = songName[i];
+        if ((c < 'a' || c > 'z') &&
+            (c < 'A' || c > 'Z') &&
+            (c < '0' || c > '9'))
+            c = ' ';
+
+        cleanSongName.append(c);
+
+        int q = (c==' ') ? '+' : c;
+        songQuery.append(q);
+    }
+
+    //printf("search: [%s] [%s]\n", cleanSongName.toAscii().data(), songQuery.toAscii().data());
+
+    ui->songLabel->setText(QString("<a href=\"http://www.youtube.com/results?search_query=%1\">%2</a>")
+            .arg(songQuery).arg(cleanSongName));
+}
