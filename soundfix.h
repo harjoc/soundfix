@@ -8,6 +8,7 @@
 #include <QProgressDialog>
 #include <QProcess>
 
+
 namespace Ui {
 class SoundFix;
 }
@@ -41,6 +42,7 @@ private slots:
     void youtubeReadyRead();
     void youtubeFinished(int exitCode);
     void youtubeError(QProcess::ProcessError err);
+    void thumbnailFinished(QNetworkReply *reply);
 
 private:
     Ui::SoundFix *ui;
@@ -62,6 +64,11 @@ private:
     // youtube search
     void startYoutubeSearch();
     void cleanupYoutubeSearch();
+    void youtubeUpdateProgress();
+    void youtubeAddResult();
+    void showThumb();
+    void startThumbnail();
+    bool saveThumb(const QByteArray &data);
 
     int substep;
 
@@ -91,6 +98,12 @@ private:
     QProcess youtubeProc;
     int youtubeLineNo;
     QString youtubeLines[3];
+
+    int thumbsStarted;
+    int thumbsFinished;
+    QList<QString> thumbUrls;
+    QList<QNetworkAccessManager*> thumbMgrs;
+    QNetworkAccessManager *thumbMgr;
 };
 
 #endif // SOUNDFIX_H

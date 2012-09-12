@@ -13,6 +13,7 @@
 #include <QTime>
 #include <QThread>
 #include <QCloseEvent>
+#include <QRadioButton>
 
 //#define USE_MIDOMI
 
@@ -45,6 +46,32 @@ SoundFix::SoundFix(QWidget *parent) :
 
     // youtube search
 
+    thumbMgr = new QNetworkAccessManager(this);
+
+    ui->youtubeTable->setHorizontalHeaderLabels(
+            QStringList() << "Use" << "Play" << "Sample" << "Title");
+
+    ui->youtubeTable->setColumnWidth(0, 30);
+    ui->youtubeTable->setColumnWidth(1, 40);
+    ui->youtubeTable->setColumnWidth(2, 90);
+
+    //ui->youtubeTable->horizontalHeaderItem(0)->setTextAlignment(Qt::AlignLeft);
+    //ui->youtubeTable->horizontalHeaderItem(1)->setTextAlignment(Qt::AlignLeft);
+    //ui->youtubeTable->horizontalHeaderItem(2)->setTextAlignment(Qt::AlignLeft);
+    ui->youtubeTable->horizontalHeaderItem(3)->setTextAlignment(Qt::AlignLeft);
+
+    // sync
+
+    ui->offsetsTable->setHorizontalHeaderLabels(
+            QStringList() << "Use" << "Play" << "Offset");
+
+    ui->offsetsTable->setColumnWidth(0, 30);
+    ui->offsetsTable->setColumnWidth(1, 40);
+
+    //ui->offsetsTable->horizontalHeaderItem(0)->setTextAlignment(Qt::AlignLeft);
+    //ui->offsetsTable->horizontalHeaderItem(1)->setTextAlignment(Qt::AlignLeft);
+    ui->offsetsTable->horizontalHeaderItem(2)->setTextAlignment(Qt::AlignLeft);
+
     // test
     QTimer::singleShot(0, this, SLOT(appReady()));
 }
@@ -53,7 +80,8 @@ void SoundFix::appReady()
 {
     recordingName = "data/tefalta.3gp";
     ui->videoEdit->setText(recordingName);
-    startIdentification();
+    //startIdentification();
+    ui->songEdit->setText("Calambuco - Te Falta Ritmo");
 }
 
 void SoundFix::closeEvent(QCloseEvent *event)
@@ -137,7 +165,7 @@ void SoundFix::startIdentification()
     progressBar.setMinimum(0);
     progressBar.setMaximum(100);
     progressBar.setValue(0);
-    progressBar.setMinimumDuration(1000);
+    progressBar.setMinimumDuration(1500);
 
     substep = IDENTIFY_EXTRACT_AUDIO;
     continueIdentification();
@@ -654,38 +682,130 @@ void SoundFix::on_searchBtn_clicked()
     startYoutubeSearch();
 }
 
+#define YOUTUBE_RESULTS 10
+// TODO there may not be 10 results ... update maxpos at youtube-dl eof
+
 void SoundFix::startYoutubeSearch()
 {
-    printf("youtube search\n");
+    printf("\nyoutube search\n");
+
+    cleanupYoutubeSearch();
 
     progressBar.setLabelText("Starting YouTube video search...");
     progressBar.setMinimum(0);
-    progressBar.setMaximum(3*10);
+    progressBar.setMaximum(2*YOUTUBE_RESULTS);
     progressBar.setValue(0);
     progressBar.setMinimumDuration(500);
 
-    //youtubeProc.start("tools/youtube-dl.exe", QStringList() <<
-    //        QString("ytsearch10:%1").arg(cleanSongName) <<
-    //        "-g" << "-e" << "--get-thumbnail");
+    ui->youtubeTable->clearContents();
 
     connect(&youtubeProc, SIGNAL(readyReadStandardOutput()), this, SLOT(youtubeReadyRead()));
     connect(&youtubeProc, SIGNAL(finished(int)), this, SLOT(youtubeFinished(int)));
     connect(&youtubeProc, SIGNAL(error(QProcess::ProcessError)),
             this, SLOT(youtubeError(QProcess::ProcessError)));
 
-    youtubeLineNo = 0;
+    connect(thumbMgr, SIGNAL(finished(QNetworkReply*)),
+            this, SLOT(thumbnailFinished(QNetworkReply*)));
+
+    //youtubeProc.start("tools/youtube-dl.exe", QStringList() <<
+    //        QString("ytsearch10:%1").arg(cleanSongName) <<
+    //        "-g" << "-e" << "--get-thumbnail");
     youtubeProc.start("python.exe tools/youtube.py");
 }
 
 void SoundFix::cleanupYoutubeSearch()
 {
+    printf("youtube cleanup\n");
+
     disconnect(&youtubeProc, SIGNAL(readyReadStandardOutput()), this, SLOT(youtubeReadyRead()));
     disconnect(&youtubeProc, SIGNAL(finished(int)), this, SLOT(youtubeFinished(int)));
     disconnect(&youtubeProc, SIGNAL(error(QProcess::ProcessError)),
             this, SLOT(youtubeError(QProcess::ProcessError)));
 
+    disconnect(thumbMgr, SIGNAL(finished(QNetworkReply*)),
+            this, SLOT(thumbnailFinished(QNetworkReply*)));
+
     youtubeProc.kill();
+
+    thumbUrls.clear();
+    while (!thumbMgrs.isEmpty())
+         delete thumbMgrs.takeFirst();
+
+    youtubeLineNo = 0;
+    thumbsStarted = 0;
+    thumbsFinished = 0;
+
     progressBar.setValue(progressBar.maximum());
+}
+
+void SoundFix::youtubeUpdateProgress()
+{
+    progressBar.setValue(youtubeLineNo/3 + thumbsFinished);
+}
+
+void SoundFix::youtubeAddResult()
+{
+    int row = ui->youtubeTable->rowCount();
+    ui->youtubeTable->insertRow(row);
+
+    ui->youtubeTable->verticalHeader()->resizeSection(row, 60);
+
+    // col 0
+    QWidget* w0 = new QWidget;
+    QRadioButton *radio = new QRadioButton(w0);
+    if (row==0) radio->setChecked(true);
+    // slot for selected, to deselect others
+    QHBoxLayout* layout0 = new QHBoxLayout(w0);
+    layout0->addWidget(radio);
+    layout0->setAlignment(Qt::AlignCenter);
+    layout0->setSpacing(0);
+    layout0->setMargin(0);
+    w0->setLayout(layout0);
+    ui->youtubeTable->setCellWidget(row, 0, w0);
+
+    // col 1
+    QWidget* w1 = new QWidget;
+    QPushButton *button = new QPushButton(w1);
+    button->setIcon(QIcon("play.png"));
+    QHBoxLayout* layout1 = new QHBoxLayout(w1);
+    layout1->addWidget(button);
+    layout1->setAlignment(Qt::AlignCenter);
+    layout1->setSpacing(0);
+    layout1->setMargin(0);
+    w1->setLayout(layout1);
+    ui->youtubeTable->setCellWidget(row, 1, w1);
+
+    // col 3
+
+    QTableWidgetItem *item = new QTableWidgetItem(youtubeLines[0]);
+
+    QFont font = item->font();
+    font.setPointSize(11);
+    font.setBold(true);
+    item->setFont(font);
+
+    ui->youtubeTable->setItem(row, 3, item);
+}
+
+void SoundFix::showThumb()
+{
+    // col 2
+    QWidget* w2 = new QWidget;
+    QLabel *label = new QLabel(w2);
+
+    QPixmap pixmap(QString("data/%1.jpg").arg(thumbsFinished));
+    QPixmap scaledPix = pixmap.scaled(90, 60);
+    label->setPixmap(scaledPix);
+
+    QHBoxLayout* layout2 = new QHBoxLayout(w2);
+    layout2->addWidget(label);
+    layout2->setAlignment(Qt::AlignCenter);
+    layout2->setSpacing(0);
+    layout2->setMargin(0);
+
+    w2->setLayout(layout2);
+
+    ui->youtubeTable->setCellWidget(thumbsFinished, 2, w2);
 }
 
 void SoundFix::youtubeReadyRead()
@@ -696,15 +816,66 @@ void SoundFix::youtubeReadyRead()
 
         youtubeLines[youtubeLineNo++ % 3] = line;
 
-        progressBar.setValue(youtubeLineNo);
-
         if (youtubeLineNo % 3 == 0) {
+            youtubeUpdateProgress();
+
             printf("title: [%s]\n",     youtubeLines[0].toAscii().data());
             printf("url: [%s]\n",       youtubeLines[1].toAscii().data());
             printf("thumbnail: [%s]\n", youtubeLines[2].toAscii().data());
             printf("\n");
+
+            youtubeAddResult();
+
+            thumbUrls.append(youtubeLines[2]);
+            if (thumbsFinished == thumbsStarted)
+                startThumbnail();
         }
     }
+}
+
+void SoundFix::startThumbnail()
+{
+    printf("starting thumbnail %d\n", thumbsStarted);
+
+    /*QNetworkAccessManager *mgr = new QNetworkAccessManager(this);
+    thumbMgrs.append(mgr);
+
+    connect(mgr, SIGNAL(finished(QNetworkReply*)),
+            this, SLOT(thumbnailFinished(QNetworkReply*)));*/
+
+    thumbMgr->get(QNetworkRequest(QUrl(thumbUrls[thumbsStarted])));
+
+    thumbsStarted++;
+}
+
+bool SoundFix::saveThumb(const QByteArray &data)
+{
+    QFile f(QString("data/%1.jpg").arg(thumbsFinished));
+    if (!f.open(QFile::WriteOnly))
+        return false;
+
+    f.write(data);
+    f.close();
+    return true;
+}
+
+void SoundFix::thumbnailFinished(QNetworkReply *reply)
+{
+    printf("thumbnail finished %d\n", thumbsFinished);
+
+    if (saveThumb(reply->readAll()))
+        showThumb();
+
+    reply->deleteLater();
+
+    thumbsFinished++;
+    youtubeUpdateProgress();
+
+    if (thumbUrls.length() > thumbsFinished)
+        startThumbnail();
+
+    if (!youtubeProc.isOpen())
+        cleanupYoutubeSearch();
 }
 
 void SoundFix::youtubeError(QProcess::ProcessError)
@@ -715,7 +886,7 @@ void SoundFix::youtubeError(QProcess::ProcessError)
 
 void SoundFix::youtubeFinished(int exitCode)
 {
-    printf("youtube finished\n");
+    printf("youtube search finished\n");
 
     if (exitCode != 0) {
         error("YouTube search error", "YouTube search returned an error.");
@@ -723,5 +894,8 @@ void SoundFix::youtubeFinished(int exitCode)
         return;
     }
 
-    cleanupYoutubeSearch(); // mainly because this signal gets called twice
+    // TODO update progress, etc with actual number of results
+
+    if (thumbsFinished == thumbUrls.length())
+        cleanupYoutubeSearch();
 }
