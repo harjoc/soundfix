@@ -12,8 +12,7 @@ TEMPLATE = app
 SOURCES += main.cpp\
         soundfix.cpp
 
-HEADERS  += soundfix.h \
-    midomi.h
+HEADERS  += soundfix.h
 
 FORMS    += soundfix.ui
 

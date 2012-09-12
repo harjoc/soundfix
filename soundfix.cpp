@@ -14,6 +14,7 @@
 #include <QThread>
 #include <QCloseEvent>
 #include <QRadioButton>
+#include <QTextDocument>
 
 //#define USE_MIDOMI
 
@@ -21,7 +22,8 @@
 
 SoundFix::SoundFix(QWidget *parent) :
     QMainWindow(parent),
-    ui(new Ui::SoundFix)
+    ui(new Ui::SoundFix),
+    radioGroup(new QButtonGroup(this))
 {
     ui->setupUi(this);
 
@@ -51,8 +53,8 @@ SoundFix::SoundFix(QWidget *parent) :
     ui->youtubeTable->setHorizontalHeaderLabels(
             QStringList() << "Use" << "Play" << "Sample" << "Title");
 
-    ui->youtubeTable->setColumnWidth(0, 30);
-    ui->youtubeTable->setColumnWidth(1, 40);
+    ui->youtubeTable->setColumnWidth(0, 0); //30);
+    ui->youtubeTable->setColumnWidth(1, 0); //40);
     ui->youtubeTable->setColumnWidth(2, 90);
 
     //ui->youtubeTable->horizontalHeaderItem(0)->setTextAlignment(Qt::AlignLeft);
@@ -82,12 +84,15 @@ void SoundFix::appReady()
     ui->videoEdit->setText(recordingName);
     //startIdentification();
     ui->songEdit->setText("Calambuco - Te Falta Ritmo");
+
+    startYoutubeDown("CU8V4BSuRKI");
 }
 
 void SoundFix::closeEvent(QCloseEvent *event)
 {
     cleanupIdentification();
     cleanupYoutubeSearch();
+    cleanupYoutubeDown();
     event->accept();
 }
 
@@ -129,6 +134,8 @@ SoundFix::~SoundFix()
 
 void SoundFix::cleanupIdentification()
 {
+    printf("identification cleanup\n");
+
     speexTimer->stop();
     speexFile.close();
     sock->abort();
@@ -152,6 +159,11 @@ void SoundFix::on_browseBtn_clicked()
 void SoundFix::error(const QString &title, const QString &text)
 {
     QMessageBox::warning(this, title, text, QMessageBox::Ok);
+}
+
+void SoundFix::information(const QString &title, const QString &text)
+{
+    QMessageBox::information(this, title, text, QMessageBox::Ok);
 }
 
 enum {
@@ -679,17 +691,17 @@ void SoundFix::on_searchBtn_clicked()
     ui->songLabel->setText(QString("<a href=\"http://www.youtube.com/results?search_query=%1\">%2</a>")
             .arg(songQuery).arg(cleanSongName));
 
-    startYoutubeSearch();
+    startYoutubeSearch(cleanSongName);
 }
 
 #define YOUTUBE_RESULTS 10
 // TODO there may not be 10 results ... update maxpos at youtube-dl eof
 
-void SoundFix::startYoutubeSearch()
+void SoundFix::startYoutubeSearch(const QString &cleanSongName)
 {
-    printf("\nyoutube search\n");
-
     cleanupYoutubeSearch();
+
+    printf("\nyoutube search\n");
 
     progressBar.setLabelText("Starting YouTube video search...");
     progressBar.setMinimum(0);
@@ -697,39 +709,44 @@ void SoundFix::startYoutubeSearch()
     progressBar.setValue(0);
     progressBar.setMinimumDuration(500);
 
-    ui->youtubeTable->clearContents();
+    ui->youtubeTable->setRowCount(0);
 
-    connect(&youtubeProc, SIGNAL(readyReadStandardOutput()), this, SLOT(youtubeReadyRead()));
-    connect(&youtubeProc, SIGNAL(finished(int)), this, SLOT(youtubeFinished(int)));
-    connect(&youtubeProc, SIGNAL(error(QProcess::ProcessError)),
+    connect(&youtubeSearchProc, SIGNAL(readyReadStandardOutput()), this, SLOT(youtubeReadyRead()));
+    connect(&youtubeSearchProc, SIGNAL(finished(int)), this, SLOT(youtubeFinished(int)));
+    connect(&youtubeSearchProc, SIGNAL(error(QProcess::ProcessError)),
             this, SLOT(youtubeError(QProcess::ProcessError)));
 
     connect(thumbMgr, SIGNAL(finished(QNetworkReply*)),
             this, SLOT(thumbnailFinished(QNetworkReply*)));
 
-    //youtubeProc.start("tools/youtube-dl.exe", QStringList() <<
+    cleanSongName.isEmpty();
+
+    //youtubeSearchProc.start("tools/youtube-dl.exe", QStringList() <<
     //        QString("ytsearch10:%1").arg(cleanSongName) <<
+    //        "--cookies" << "data/cookies.txt" <<
     //        "-g" << "-e" << "--get-thumbnail");
-    youtubeProc.start("python.exe tools/youtube.py");
+    youtubeSearchProc.start("python.exe tools/delay.py tools/search.txt 0");
+
+    ui->youtubeTable->setFocus();
 }
 
 void SoundFix::cleanupYoutubeSearch()
 {
-    printf("youtube cleanup\n");
+    printf("youtube search cleanup\n");
 
-    disconnect(&youtubeProc, SIGNAL(readyReadStandardOutput()), this, SLOT(youtubeReadyRead()));
-    disconnect(&youtubeProc, SIGNAL(finished(int)), this, SLOT(youtubeFinished(int)));
-    disconnect(&youtubeProc, SIGNAL(error(QProcess::ProcessError)),
+    disconnect(&youtubeSearchProc, SIGNAL(readyReadStandardOutput()), this, SLOT(youtubeReadyRead()));
+    disconnect(&youtubeSearchProc, SIGNAL(finished(int)), this, SLOT(youtubeFinished(int)));
+    disconnect(&youtubeSearchProc, SIGNAL(error(QProcess::ProcessError)),
             this, SLOT(youtubeError(QProcess::ProcessError)));
 
     disconnect(thumbMgr, SIGNAL(finished(QNetworkReply*)),
             this, SLOT(thumbnailFinished(QNetworkReply*)));
 
-    youtubeProc.kill();
+    youtubeSearchProc.kill();
 
     thumbUrls.clear();
-    while (!thumbMgrs.isEmpty())
-         delete thumbMgrs.takeFirst();
+    //while (!thumbMgrs.isEmpty())
+    //     delete thumbMgrs.takeFirst();
 
     youtubeLineNo = 0;
     thumbsStarted = 0;
@@ -743,28 +760,46 @@ void SoundFix::youtubeUpdateProgress()
     progressBar.setValue(youtubeLineNo/3 + thumbsFinished);
 }
 
-void SoundFix::youtubeAddResult()
+// thumbUrl = "..../CU8V4BSuRKI/default.jpg"
+
+QString getVideoId(const QString &thumbUrl)
 {
+    int rpos = thumbUrl.lastIndexOf('/');
+    if (rpos<0) return QString();
+
+    int lpos = thumbUrl.lastIndexOf('/', rpos-1);
+    if (lpos<0) return QString();
+
+    return thumbUrl.mid(lpos+1, rpos-1-lpos);
+}
+
+void SoundFix::youtubeAddResult()
+{    
     int row = ui->youtubeTable->rowCount();
     ui->youtubeTable->insertRow(row);
 
     ui->youtubeTable->verticalHeader()->resizeSection(row, 60);
 
     // col 0
-    QWidget* w0 = new QWidget;
-    QRadioButton *radio = new QRadioButton(w0);
-    if (row==0) radio->setChecked(true);
+
+    /*QWidget* w0 = new QWidget;
+    QRadioButton *radio = new QRadioButton(this);
+    radioGroup->addButton(radio);*/
+
     // slot for selected, to deselect others
-    QHBoxLayout* layout0 = new QHBoxLayout(w0);
+    /*QHBoxLayout* layout0 = new QHBoxLayout(w0);
     layout0->addWidget(radio);
     layout0->setAlignment(Qt::AlignCenter);
     layout0->setSpacing(0);
     layout0->setMargin(0);
     w0->setLayout(layout0);
-    ui->youtubeTable->setCellWidget(row, 0, w0);
+    ui->youtubeTable->setCellWidget(row, 0, w0);*/
+
+    if (row==0) ui->youtubeTable->selectRow(0);
 
     // col 1
-    QWidget* w1 = new QWidget;
+
+    /*QWidget* w1 = new QWidget;
     QPushButton *button = new QPushButton(w1);
     button->setIcon(QIcon("play.png"));
     QHBoxLayout* layout1 = new QHBoxLayout(w1);
@@ -773,18 +808,25 @@ void SoundFix::youtubeAddResult()
     layout1->setSpacing(0);
     layout1->setMargin(0);
     w1->setLayout(layout1);
-    ui->youtubeTable->setCellWidget(row, 1, w1);
+    ui->youtubeTable->setCellWidget(row, 1, w1);*/
 
     // col 3
 
-    QTableWidgetItem *item = new QTableWidgetItem(youtubeLines[0]);
+    QString videoId = getVideoId(youtubeLines[2]);
 
-    QFont font = item->font();
+    QString link = videoId.isEmpty() ? youtubeLines[0] :
+             QString("<a href=\"http://localhost/watch?v=%1\">%2</a>")
+                    .arg(videoId).arg(Qt::escape(youtubeLines[0]));
+
+    QLabel *href = new QLabel(link, this);
+    href->setOpenExternalLinks(true);
+
+    QFont font = href->font();
     font.setPointSize(11);
     font.setBold(true);
-    item->setFont(font);
+    href->setFont(font);
 
-    ui->youtubeTable->setItem(row, 3, item);
+    ui->youtubeTable->setCellWidget(row, 3, href);
 }
 
 void SoundFix::showThumb()
@@ -810,8 +852,8 @@ void SoundFix::showThumb()
 
 void SoundFix::youtubeReadyRead()
 {
-    while (youtubeProc.canReadLine()) {
-        QString line = youtubeProc.readLine().trimmed();
+    while (youtubeSearchProc.canReadLine()) {
+        QString line = youtubeSearchProc.readLine().trimmed();
         if (line.isEmpty()) continue;
 
         youtubeLines[youtubeLineNo++ % 3] = line;
@@ -874,7 +916,7 @@ void SoundFix::thumbnailFinished(QNetworkReply *reply)
     if (thumbUrls.length() > thumbsFinished)
         startThumbnail();
 
-    if (!youtubeProc.isOpen())
+    if (!youtubeSearchProc.isOpen())
         cleanupYoutubeSearch();
 }
 
@@ -899,3 +941,135 @@ void SoundFix::youtubeFinished(int exitCode)
     if (thumbsFinished == thumbUrls.length())
         cleanupYoutubeSearch();
 }
+
+void SoundFix::on_downloadBtn_clicked()
+{
+    QList<QModelIndex> rows = ui->youtubeTable->selectionModel()->selectedRows();
+    if (rows.isEmpty()) {
+        information("No video is selected", "Please select a video to download from the list.");
+        return;
+    }
+
+    // get videoId from row
+    //startYoutubeDown();
+}
+
+// 60KB/s, ETA 00:59
+
+void SoundFix::startYoutubeDown(const QString &videoId)
+{
+    cleanupYoutubeDown();
+
+    printf("\nyoutube down\n");
+
+    connect(&youtubeDownProc, SIGNAL(readyReadStandardOutput()), this, SLOT(youtubeDownReadyRead()));
+    connect(&youtubeDownProc, SIGNAL(finished(int)), this, SLOT(youtubeDownFinished(int)));
+    connect(&youtubeDownProc, SIGNAL(error(QProcess::ProcessError)),
+            this, SLOT(youtubeDownError(QProcess::ProcessError)));
+
+    youtubeDownStdout.clear();
+    youtubeDownDestination.clear();
+
+    videoId.isEmpty();
+
+    //youtubeDownProc.start("tools/youtube-dl.exe", QStringList() <<
+    //        QString("http://www.youtube.com/watch?v=%1").arg(videoId) <<
+    //        "--cookies" << "data/cookies.txt");
+    youtubeDownProc.start("python.exe tools/delay.py tools/download.txt 0.02");
+}
+
+void SoundFix::cleanupYoutubeDown()
+{
+    printf("youtube down cleanup\n");
+
+    disconnect(&youtubeDownProc, SIGNAL(readyReadStandardOutput()), this, SLOT(youtubeDownReadyRead()));
+    disconnect(&youtubeDownProc, SIGNAL(finished(int)), this, SLOT(youtubeDownFinished(int)));
+    disconnect(&youtubeDownProc, SIGNAL(error(QProcess::ProcessError)),
+            this, SLOT(youtubeDownError(QProcess::ProcessError)));
+
+    youtubeDownProc.kill();
+
+    ui->downloadProgress->setValue(0);
+}
+
+void SoundFix::youtubeDownReadyRead()
+{
+    youtubeDownStdout.append(youtubeDownProc.readAll());
+
+    for (;;) {
+        // it separates progress lines with \r and other lines with \n
+        int cr = youtubeDownStdout.indexOf('\r');
+        int lf = youtubeDownStdout.indexOf('\n');
+        if (cr<0 && lf<0) break;
+
+        int sep = (cr<0 || (lf>0 && lf<cr)) ? lf : cr;
+        int nonsep = sep;
+
+        QString sepChars("\r\n");
+        while (nonsep < youtubeDownStdout.length() && sepChars.contains(youtubeDownStdout.at(nonsep)))
+            nonsep++;
+
+        QString line = youtubeDownStdout.left(sep);
+        youtubeDownStdout = youtubeDownStdout.right(youtubeDownStdout.length() - nonsep);
+
+        // get destination file
+
+        QRegExp rxd("\\[download\\] +Destination: +(.+)");
+        if (rxd.indexIn(line)>=0) {
+            youtubeDownDestination = rxd.cap(1);
+            printf("destination: %s\n", youtubeDownDestination.toAscii().data());
+        }
+
+        // get progress
+
+        QRegExp rxp("\\[download\\] +(.+)%.* at (.+)/s +ETA +([^ ]+)");
+        if (rxp.indexIn(line)>=0) {
+            QString percent = rxp.cap(1);
+            QString speed = rxp.cap(2);
+            QString eta = rxp.cap(3);
+
+            printf("percent=%s speed=%s eta=%s\n",
+                   percent.toAscii().data(),
+                   speed.toAscii().data(),
+                   eta.toAscii().data());
+
+            float fpercent = percent.toFloat()*10;
+            ui->downloadProgress->setValue(fpercent);
+
+            ui->progressLabel->setText(QString("%1/s, ETA %2").arg(speed).arg(eta));
+        }
+    }
+}
+
+void SoundFix::youtubeDownError(QProcess::ProcessError)
+{
+    error("YouTube download error", "Could not download YouTube video.");
+    cleanupYoutubeSearch();
+}
+
+void SoundFix::youtubeDownFinished(int exitCode)
+{
+    printf("youtube down finished\n");
+
+    if (exitCode != 0) {
+        error("YouTube download error", "YouTube download was interrupted.");
+        cleanupYoutubeSearch();
+        return;
+    }
+
+    ui->progressLabel->setText("Download complete.");
+
+    if (youtubeDownDestination.isEmpty()) {
+        error("YouTube download error", "Could not determine YouTube download location.");
+        cleanupYoutubeSearch();
+        return;
+    }
+
+    syncAudio();
+}
+
+void SoundFix::syncAudio()
+{
+
+}
+

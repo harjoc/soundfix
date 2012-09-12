@@ -147,7 +147,7 @@
     <item>
      <widget class="QTableWidget" name="youtubeTable">
       <property name="selectionMode">
-       <enum>QAbstractItemView::NoSelection</enum>
+       <enum>QAbstractItemView::SingleSelection</enum>
       </property>
       <property name="selectionBehavior">
        <enum>QAbstractItemView::SelectRows</enum>
@@ -167,6 +167,9 @@
       <property name="columnCount">
        <number>4</number>
       </property>
+      <attribute name="horizontalHeaderVisible">
+       <bool>false</bool>
+      </attribute>
       <attribute name="horizontalHeaderHighlightSections">
        <bool>false</bool>
       </attribute>
@@ -196,14 +199,30 @@
          </sizepolicy>
         </property>
         <property name="text">
-         <string>Get audio from YouTube</string>
+         <string>Get audio from selected video</string>
         </property>
        </widget>
       </item>
       <item>
        <widget class="QProgressBar" name="downloadProgress">
+        <property name="maximum">
+         <number>1000</number>
+        </property>
         <property name="value">
          <number>0</number>
+        </property>
+        <property name="textVisible">
+         <bool>false</bool>
+        </property>
+        <property name="invertedAppearance">
+         <bool>false</bool>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="progressLabel">
+        <property name="text">
+         <string/>
         </property>
        </widget>
       </item>

@@ -7,7 +7,7 @@
 #include <QFile>
 #include <QProgressDialog>
 #include <QProcess>
-
+#include <QBuffer>
 
 namespace Ui {
 class SoundFix;
@@ -15,6 +15,7 @@ class SoundFix;
 
 class QNetworkReply;
 class QNetworkAccessManager;
+class QButtonGroup;
 
 class SoundFix : public QMainWindow
 {
@@ -44,10 +45,17 @@ private slots:
     void youtubeError(QProcess::ProcessError err);
     void thumbnailFinished(QNetworkReply *reply);
 
+    // youtube down
+    void on_downloadBtn_clicked();
+    void youtubeDownReadyRead();
+    void youtubeDownError(QProcess::ProcessError);
+    void youtubeDownFinished(int exitCode);
+
 private:
     Ui::SoundFix *ui;
 
     void error(const QString &title, const QString &text);
+    void information(const QString &title, const QString &text);
 
     // identification
     void loadSession();    
@@ -62,13 +70,22 @@ private:
     void processSearchResponse();
 
     // youtube search
-    void startYoutubeSearch();
+    void startYoutubeSearch(const QString &cleanSongName);
     void cleanupYoutubeSearch();
     void youtubeUpdateProgress();
     void youtubeAddResult();
     void showThumb();
     void startThumbnail();
     bool saveThumb(const QByteArray &data);
+
+    // youtube download
+    void startYoutubeDown(const QString &videoId);
+    void cleanupYoutubeDown();
+
+    // sync audio
+    void syncAudio();
+
+    // members
 
     int substep;
 
@@ -95,15 +112,22 @@ private:
     QFile speexFile;    
 
     // youtube search
-    QProcess youtubeProc;
+    QProcess youtubeSearchProc;
     int youtubeLineNo;
     QString youtubeLines[3];
 
     int thumbsStarted;
     int thumbsFinished;
     QList<QString> thumbUrls;
-    QList<QNetworkAccessManager*> thumbMgrs;
+    //QList<QNetworkAccessManager*> thumbMgrs;
     QNetworkAccessManager *thumbMgr;
+
+    QButtonGroup *radioGroup;
+
+    // youtube download
+    QProcess youtubeDownProc;
+    QString youtubeDownStdout;
+    QString youtubeDownDestination;
 };
 
 #endif // SOUNDFIX_H
