@@ -10,9 +10,18 @@ TARGET = SoundFix
 TEMPLATE = app
 
 SOURCES += main.cpp\
-        soundfix.cpp
+        soundfix.cpp \
+    kiss_fft/kiss_fftr.c \
+    kiss_fft/kiss_fft.c \
+    wav.cpp \
+    specpp.cpp
 
-HEADERS  += soundfix.h
+HEADERS  += soundfix.h \
+    kiss_fft/kiss_fftr.h \
+    kiss_fft/kiss_fft.h \
+    kiss_fft/_kiss_fft_guts.h \
+    wav.h \
+    specpp.h
 
 FORMS    += soundfix.ui
 

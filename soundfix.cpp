@@ -44,7 +44,7 @@ SoundFix::SoundFix(QWidget *parent) :
     partners = "%7B%22installed%22%3A%5B%5D%7D";
     loadSession();
 
-    progressBar.setCancelButtonText("Cancel");
+    identProgressBar.setCancelButtonText("Cancel");
 
     // youtube search
 
@@ -140,7 +140,7 @@ void SoundFix::cleanupIdentification()
     speexFile.close();
     sock->abort();
 
-    progressBar.setValue(progressBar.maximum());
+    identProgressBar.setValue(identProgressBar.maximum());
 }
 
 void SoundFix::on_browseBtn_clicked()
@@ -174,12 +174,12 @@ enum {
 
 void SoundFix::startIdentification()
 {
-    progressBar.setMinimum(0);
-    progressBar.setMaximum(100);
-    progressBar.setValue(0);
-    progressBar.setMinimumDuration(1500);
+    identProgressBar.setMinimum(0);
+    identProgressBar.setMaximum(100);
+    identProgressBar.setValue(0);
+    identProgressBar.setMinimumDuration(1500);
 
-    substep = IDENTIFY_EXTRACT_AUDIO;
+    identSubstep = IDENTIFY_EXTRACT_AUDIO;
     continueIdentification();
 }
 
@@ -187,34 +187,36 @@ class Thr : public QThread {
     public: static void msleep(unsigned long msecs) { QThread::msleep(msecs); }
 };
 
+// TODO if progressBar is canceled stop identification
+
 void SoundFix::continueIdentification()
 {
-    switch (substep) {
+    switch (identSubstep) {
         case IDENTIFY_EXTRACT_AUDIO:
-            progressBar.setLabelText("Analyzing audio track...");
-            progressBar.setValue(25);
+            identProgressBar.setLabelText("Analyzing audio track...");
+            identProgressBar.setValue(25);
             QApplication::processEvents();
 
-            ("Analyzing audio track...", "Cancel", 0, 10, this);
             extractAudio();
             return;
 
         case IDENTIFY_GET_SESSION:
-            progressBar.setLabelText("Starting audio identification session...");
-            progressBar.setValue(50);
+            identProgressBar.setLabelText("Starting audio identification session...");
+            identProgressBar.setValue(50);
             QApplication::processEvents();
 
             getSession();
             return;
 
         case IDENTIFY_POST_SAMPLE:
-            progressBar.setLabelText("Identifying audio track...");
-            progressBar.setValue(75);
+            identProgressBar.setLabelText("Identifying audio track...");
+            identProgressBar.setValue(75);
             QApplication::processEvents();
 
             #ifdef USE_MIDOMI
             Thr::msleep(2500);
             #endif
+
             postSample();
             return;
     }
@@ -366,13 +368,13 @@ void SoundFix::extractAudio()
     ogg.close();
     spx.close();
 
-    substep++;
+    identSubstep++;
     continueIdentification();
 }
 
 void SoundFix::sockConnected()
 {
-    if (substep == IDENTIFY_GET_SESSION) {
+    if (identSubstep == IDENTIFY_GET_SESSION) {
         QString cookies = "partners_cookie=" + partners;
 
         QString req = QString(
@@ -391,7 +393,7 @@ void SoundFix::sockConnected()
         contentLength = -1;
         sockBuf.truncate(0);
         sock->write(req.toAscii().data());
-    } else if (substep == IDENTIFY_POST_SAMPLE) {            
+    } else if (identSubstep == IDENTIFY_POST_SAMPLE) {
         QString cookies = "partners_cookie=" + partners;
         cookies += "; PHPSESSID=" + phpsessid;
 
@@ -459,8 +461,8 @@ void SoundFix::sendSpeexChunk()
 
 void SoundFix::sockReadyRead()
 {
-    if (substep != IDENTIFY_GET_SESSION &&
-        substep != IDENTIFY_POST_SAMPLE)
+    if (identSubstep != IDENTIFY_GET_SESSION &&
+        identSubstep != IDENTIFY_POST_SAMPLE)
     {
         error("Network error", "Unexpected response from identification service.");
         cleanupIdentification();
@@ -509,9 +511,9 @@ void SoundFix::sockReadyRead()
     printf("---\n%s\n---\n", sockBuf.toAscii().data());
     cleanupIdentification();
 
-    if (substep == IDENTIFY_GET_SESSION)
+    if (identSubstep == IDENTIFY_GET_SESSION)
         processSessionResponse();
-    else if (substep == IDENTIFY_POST_SAMPLE)
+    else if (identSubstep == IDENTIFY_POST_SAMPLE)
         processSearchResponse();
 }
 
@@ -567,7 +569,7 @@ void SoundFix::processSessionResponse()
     if (phpsessid.isEmpty())
         { error("Song identification error", "Cannot get identification session."); return; }
 
-    substep++;
+    identSubstep++;
     continueIdentification();
     return;
 }
@@ -606,9 +608,9 @@ void SoundFix::processSearchResponse()
 
 void SoundFix::sockError(QAbstractSocket::SocketError)
 {
-    if (substep == IDENTIFY_GET_SESSION)
+    if (identSubstep == IDENTIFY_GET_SESSION)
         error("Network error", "Cannot get song charts information.");
-    else if (substep == IDENTIFY_GET_SESSION)
+    else if (identSubstep == IDENTIFY_GET_SESSION)
         error("Network error", "Cannot do automatic song identification.");
 
     cleanupIdentification();
@@ -617,7 +619,7 @@ void SoundFix::sockError(QAbstractSocket::SocketError)
 void SoundFix::getSession()
 {
     if (!phpsessid.isEmpty()) {
-        substep++;
+        identSubstep++;
         continueIdentification();
         return;
     }
@@ -703,11 +705,11 @@ void SoundFix::startYoutubeSearch(const QString &cleanSongName)
 
     printf("\nyoutube search\n");
 
-    progressBar.setLabelText("Starting YouTube video search...");
-    progressBar.setMinimum(0);
-    progressBar.setMaximum(2*YOUTUBE_RESULTS);
-    progressBar.setValue(0);
-    progressBar.setMinimumDuration(500);
+    identProgressBar.setLabelText("Starting YouTube video search...");
+    identProgressBar.setMinimum(0);
+    identProgressBar.setMaximum(2*YOUTUBE_RESULTS);
+    identProgressBar.setValue(0);
+    identProgressBar.setMinimumDuration(500);
 
     ui->youtubeTable->setRowCount(0);
 
@@ -752,12 +754,12 @@ void SoundFix::cleanupYoutubeSearch()
     thumbsStarted = 0;
     thumbsFinished = 0;
 
-    progressBar.setValue(progressBar.maximum());
+    identProgressBar.setValue(identProgressBar.maximum());
 }
 
 void SoundFix::youtubeUpdateProgress()
 {
-    progressBar.setValue(youtubeLineNo/3 + thumbsFinished);
+    identProgressBar.setValue(youtubeLineNo/3 + thumbsFinished);
 }
 
 // thumbUrl = "..../CU8V4BSuRKI/default.jpg"
@@ -780,35 +782,7 @@ void SoundFix::youtubeAddResult()
 
     ui->youtubeTable->verticalHeader()->resizeSection(row, 60);
 
-    // col 0
-
-    /*QWidget* w0 = new QWidget;
-    QRadioButton *radio = new QRadioButton(this);
-    radioGroup->addButton(radio);*/
-
-    // slot for selected, to deselect others
-    /*QHBoxLayout* layout0 = new QHBoxLayout(w0);
-    layout0->addWidget(radio);
-    layout0->setAlignment(Qt::AlignCenter);
-    layout0->setSpacing(0);
-    layout0->setMargin(0);
-    w0->setLayout(layout0);
-    ui->youtubeTable->setCellWidget(row, 0, w0);*/
-
     if (row==0) ui->youtubeTable->selectRow(0);
-
-    // col 1
-
-    /*QWidget* w1 = new QWidget;
-    QPushButton *button = new QPushButton(w1);
-    button->setIcon(QIcon("play.png"));
-    QHBoxLayout* layout1 = new QHBoxLayout(w1);
-    layout1->addWidget(button);
-    layout1->setAlignment(Qt::AlignCenter);
-    layout1->setSpacing(0);
-    layout1->setMargin(0);
-    w1->setLayout(layout1);
-    ui->youtubeTable->setCellWidget(row, 1, w1);*/
 
     // col 3
 
@@ -832,6 +806,7 @@ void SoundFix::youtubeAddResult()
 void SoundFix::showThumb()
 {
     // col 2
+
     QWidget* w2 = new QWidget;
     QLabel *label = new QLabel(w2);
 
@@ -878,12 +853,6 @@ void SoundFix::youtubeReadyRead()
 void SoundFix::startThumbnail()
 {
     printf("starting thumbnail %d\n", thumbsStarted);
-
-    /*QNetworkAccessManager *mgr = new QNetworkAccessManager(this);
-    thumbMgrs.append(mgr);
-
-    connect(mgr, SIGNAL(finished(QNetworkReply*)),
-            this, SLOT(thumbnailFinished(QNetworkReply*)));*/
 
     thumbMgr->get(QNetworkRequest(QUrl(thumbUrls[thumbsStarted])));
 
@@ -953,8 +922,6 @@ void SoundFix::on_downloadBtn_clicked()
     // get videoId from row
     //startYoutubeDown();
 }
-
-// 60KB/s, ETA 00:59
 
 void SoundFix::startYoutubeDown(const QString &videoId)
 {
@@ -1065,11 +1032,17 @@ void SoundFix::youtubeDownFinished(int exitCode)
         return;
     }
 
-    syncAudio();
+    runAudioSync();
 }
 
-void SoundFix::syncAudio()
+void SoundFix::cleanupAudioSync()
 {
-
+    identProgressBar.setMaximum(100);
+    identProgressBar.setValue(identProgressBar.maximum());
 }
 
+void SoundFix::runAudioSync()
+{
+    cleanupAudioSync();
+
+}

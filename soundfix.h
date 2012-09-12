@@ -83,15 +83,15 @@ private:
     void cleanupYoutubeDown();
 
     // sync audio
-    void syncAudio();
+    void cleanupAudioSync();
+    void runAudioSync();
 
-    // members
-
-    int substep;
-
-    QProgressDialog progressBar;
+    // === members ===
 
     // identification
+    int identSubstep;
+    QProgressDialog identProgressBar;
+
     QString recordingName;
     QNetworkAccessManager* httpChartsMgr;
     QNetworkAccessManager* httpSearchMgr;
@@ -119,7 +119,6 @@ private:
     int thumbsStarted;
     int thumbsFinished;
     QList<QString> thumbUrls;
-    //QList<QNetworkAccessManager*> thumbMgrs;
     QNetworkAccessManager *thumbMgr;
 
     QButtonGroup *radioGroup;
