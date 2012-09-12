@@ -12,6 +12,7 @@
 #include <QTcpSocket>
 #include <QTime>
 #include <QThread>
+#include <QCloseEvent>
 
 //#define USE_MIDOMI
 
@@ -20,6 +21,8 @@ SoundFix::SoundFix(QWidget *parent) :
     ui(new Ui::SoundFix)
 {
     ui->setupUi(this);
+
+    // identification
 
     QTime time = QTime::currentTime();
     qsrand((uint)time.msec());
@@ -36,9 +39,26 @@ SoundFix::SoundFix(QWidget *parent) :
     partners = "%7B%22installed%22%3A%5B%5D%7D";
     loadSession();
 
+    progressBar.setCancelButtonText("Cancel");
+
+    // youtube search
+
+    // test
+    QTimer::singleShot(0, this, SLOT(appReady()));
+}
+
+void SoundFix::appReady()
+{
     recordingName = "data/tefalta.3gp";
     ui->videoEdit->setText(recordingName);
-    identifyAudio();
+    startIdentification();
+}
+
+void SoundFix::closeEvent(QCloseEvent *event)
+{
+    cleanupIdentification();
+    cleanupYoutubeSearch();
+    event->accept();
 }
 
 void SoundFix::loadSession()
@@ -82,6 +102,8 @@ void SoundFix::cleanupIdentification()
     speexTimer->stop();
     speexFile.close();
     sock->abort();
+
+    progressBar.setValue(progressBar.maximum());
 }
 
 void SoundFix::on_browseBtn_clicked()
@@ -94,8 +116,7 @@ void SoundFix::on_browseBtn_clicked()
 
     ui->videoEdit->setText(QDir::toNativeSeparators(recordingName));
 
-    substep = 0;
-    identifyAudio();
+    startIdentification();
 }
 
 void SoundFix::error(const QString &title, const QString &text)
@@ -109,8 +130,13 @@ enum {
     IDENTIFY_POST_SAMPLE
 };
 
-void SoundFix::identifyAudio()
+void SoundFix::startIdentification()
 {
+    progressBar.setMinimum(0);
+    progressBar.setMaximum(100);
+    progressBar.setValue(0);
+    progressBar.setMinimumDuration(1000);
+
     substep = IDENTIFY_EXTRACT_AUDIO;
     continueIdentification();
 }
@@ -122,9 +148,28 @@ class Thr : public QThread {
 void SoundFix::continueIdentification()
 {
     switch (substep) {
-        case IDENTIFY_EXTRACT_AUDIO: extractAudio(); return;
-        case IDENTIFY_GET_SESSION: getSession(); return;
+        case IDENTIFY_EXTRACT_AUDIO:
+            progressBar.setLabelText("Analyzing audio track...");
+            progressBar.setValue(25);
+            QApplication::processEvents();
+
+            ("Analyzing audio track...", "Cancel", 0, 10, this);
+            extractAudio();
+            return;
+
+        case IDENTIFY_GET_SESSION:
+            progressBar.setLabelText("Starting audio identification session...");
+            progressBar.setValue(50);
+            QApplication::processEvents();
+
+            getSession();
+            return;
+
         case IDENTIFY_POST_SAMPLE:
+            progressBar.setLabelText("Identifying audio track...");
+            progressBar.setValue(75);
+            QApplication::processEvents();
+
             #ifdef USE_MIDOMI
             Thr::msleep(2500);
             #endif
@@ -578,10 +623,13 @@ void SoundFix::postSample()
 
 void SoundFix::on_searchBtn_clicked()
 {
+    // TODO check that step 1 completed
+
     QByteArray songName = ui->songEdit->text().toAscii();
     QString cleanSongName;
     QString songQuery;
 
+    int lc = 0;
     for (int i=0; i<songName.length(); i++) {
         int c = songName[i];
         if ((c < 'a' || c > 'z') &&
@@ -589,14 +637,89 @@ void SoundFix::on_searchBtn_clicked()
             (c < '0' || c > '9'))
             c = ' ';
 
+        if (c == ' ' && lc == ' ') continue;
+
         cleanSongName.append(c);
+        lc = c;
 
         int q = (c==' ') ? '+' : c;
         songQuery.append(q);
     }
 
-    //printf("search: [%s] [%s]\n", cleanSongName.toAscii().data(), songQuery.toAscii().data());
-
     ui->songLabel->setText(QString("<a href=\"http://www.youtube.com/results?search_query=%1\">%2</a>")
             .arg(songQuery).arg(cleanSongName));
+
+    startYoutubeSearch();
+}
+
+void SoundFix::startYoutubeSearch()
+{
+    printf("youtube search\n");
+
+    progressBar.setLabelText("Starting YouTube video search...");
+    progressBar.setMinimum(0);
+    progressBar.setMaximum(3*10);
+    progressBar.setValue(0);
+    progressBar.setMinimumDuration(500);
+
+    //youtubeProc.start("tools/youtube-dl.exe", QStringList() <<
+    //        QString("ytsearch10:%1").arg(cleanSongName) <<
+    //        "-g" << "-e" << "--get-thumbnail");
+
+    connect(&youtubeProc, SIGNAL(readyReadStandardOutput()), this, SLOT(youtubeReadyRead()));
+    connect(&youtubeProc, SIGNAL(finished(int)), this, SLOT(youtubeFinished(int)));
+    connect(&youtubeProc, SIGNAL(error(QProcess::ProcessError)),
+            this, SLOT(youtubeError(QProcess::ProcessError)));
+
+    youtubeLineNo = 0;
+    youtubeProc.start("python.exe tools/youtube.py");
+}
+
+void SoundFix::cleanupYoutubeSearch()
+{
+    disconnect(&youtubeProc, SIGNAL(readyReadStandardOutput()), this, SLOT(youtubeReadyRead()));
+    disconnect(&youtubeProc, SIGNAL(finished(int)), this, SLOT(youtubeFinished(int)));
+    disconnect(&youtubeProc, SIGNAL(error(QProcess::ProcessError)),
+            this, SLOT(youtubeError(QProcess::ProcessError)));
+
+    youtubeProc.kill();
+    progressBar.setValue(progressBar.maximum());
+}
+
+void SoundFix::youtubeReadyRead()
+{
+    while (youtubeProc.canReadLine()) {
+        QString line = youtubeProc.readLine().trimmed();
+        if (line.isEmpty()) continue;
+
+        youtubeLines[youtubeLineNo++ % 3] = line;
+
+        progressBar.setValue(youtubeLineNo);
+
+        if (youtubeLineNo % 3 == 0) {
+            printf("title: [%s]\n",     youtubeLines[0].toAscii().data());
+            printf("url: [%s]\n",       youtubeLines[1].toAscii().data());
+            printf("thumbnail: [%s]\n", youtubeLines[2].toAscii().data());
+            printf("\n");
+        }
+    }
+}
+
+void SoundFix::youtubeError(QProcess::ProcessError)
+{
+    error("YouTube search error", "Could not start YouTube search.");
+    cleanupYoutubeSearch();
+}
+
+void SoundFix::youtubeFinished(int exitCode)
+{
+    printf("youtube finished\n");
+
+    if (exitCode != 0) {
+        error("YouTube search error", "YouTube search returned an error.");
+        cleanupYoutubeSearch();
+        return;
+    }
+
+    cleanupYoutubeSearch(); // mainly because this signal gets called twice
 }

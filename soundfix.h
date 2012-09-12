@@ -5,6 +5,8 @@
 #include <QTcpSocket>
 #include <QTimer>
 #include <QFile>
+#include <QProgressDialog>
+#include <QProcess>
 
 namespace Ui {
 class SoundFix;
@@ -20,24 +22,36 @@ class SoundFix : public QMainWindow
 public:
     explicit SoundFix(QWidget *parent = 0);
     ~SoundFix();
-    
+
+protected:
+    void closeEvent(QCloseEvent *event);
+
 private slots:
+    void appReady();
+
+    // identification
     void on_browseBtn_clicked();
     void sockConnected();
     void sockReadyRead();
     void sockError(QAbstractSocket::SocketError);
     void sendSpeexChunk();
 
+    // youtube search
     void on_searchBtn_clicked();
+    void youtubeReadyRead();
+    void youtubeFinished(int exitCode);
+    void youtubeError(QProcess::ProcessError err);
 
 private:
     Ui::SoundFix *ui;
 
     void error(const QString &title, const QString &text);
-    void loadSession();
-    void identifyAudio();
-    void cleanupIdentification();
+
+    // identification
+    void loadSession();    
+    void startIdentification();
     void continueIdentification();
+    void cleanupIdentification();
     void extractAudio();
     void collectCookies();
     void getSession();
@@ -45,12 +59,19 @@ private:
     void processSessionResponse();
     void processSearchResponse();
 
+    // youtube search
+    void startYoutubeSearch();
+    void cleanupYoutubeSearch();
+
     int substep;
+
+    QProgressDialog progressBar;
+
+    // identification
     QString recordingName;
     QNetworkAccessManager* httpChartsMgr;
     QNetworkAccessManager* httpSearchMgr;
 
-    // cookies
     QString phpsessid;
     QString partners;
     QString recent_searches;
@@ -64,7 +85,12 @@ private:
     int contentLength;
 
     QTimer *speexTimer;
-    QFile speexFile;
+    QFile speexFile;    
+
+    // youtube search
+    QProcess youtubeProc;
+    int youtubeLineNo;
+    QString youtubeLines[3];
 };
 
 #endif // SOUNDFIX_H
