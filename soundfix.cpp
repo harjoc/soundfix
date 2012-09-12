@@ -16,6 +16,8 @@
 #include <QRadioButton>
 #include <QTextDocument>
 
+#include "specpp.h"
+
 //#define USE_MIDOMI
 
 #define TEST_IDENT_SRV "localhost"
@@ -64,6 +66,8 @@ SoundFix::SoundFix(QWidget *parent) :
 
     // sync
 
+    specpp_init();
+
     ui->offsetsTable->setHorizontalHeaderLabels(
             QStringList() << "Use" << "Play" << "Offset");
 
@@ -81,11 +85,15 @@ SoundFix::SoundFix(QWidget *parent) :
 void SoundFix::appReady()
 {
     recordingName = "data/tefalta.3gp";
-    ui->videoEdit->setText(recordingName);
+    ui->videoEdit->setText(recordingName);        
     //startIdentification();
+
     ui->songEdit->setText("Calambuco - Te Falta Ritmo");
 
-    startYoutubeDown("CU8V4BSuRKI");
+    //startYoutubeDown("CU8V4BSuRKI");
+
+    youtubeDownDestination = "CU8V4BSuRKI.flv";
+    runAudioSync();
 }
 
 void SoundFix::closeEvent(QCloseEvent *event)
@@ -93,6 +101,9 @@ void SoundFix::closeEvent(QCloseEvent *event)
     cleanupIdentification();
     cleanupYoutubeSearch();
     cleanupYoutubeDown();
+
+    specpp_cleanup();
+
     event->accept();
 }
 
@@ -269,6 +280,8 @@ void SoundFix::extractAudio()
     QFile("data/sample.wav").remove();
     QFile("data/sample.ogg").remove();
     QFile("data/sample.spx").remove();
+
+    // should just chdir to data in processes
 
     QProcess ffmpegWav;
     ffmpegWav.start("tools/ffmpeg.exe", QStringList() << "-i" << recordingName <<
@@ -723,11 +736,13 @@ void SoundFix::startYoutubeSearch(const QString &cleanSongName)
 
     cleanSongName.isEmpty();
 
+    youtubeSearchProc.setWorkingDirectory("data");
+
     //youtubeSearchProc.start("tools/youtube-dl.exe", QStringList() <<
     //        QString("ytsearch10:%1").arg(cleanSongName) <<
-    //        "--cookies" << "data/cookies.txt" <<
+    //        "--cookies" << "cookies.txt" <<
     //        "-g" << "-e" << "--get-thumbnail");
-    youtubeSearchProc.start("python.exe tools/delay.py tools/search.txt 0");
+    youtubeSearchProc.start("python.exe ../tools/delay.py ../tools/search.txt 0");
 
     ui->youtubeTable->setFocus();
 }
@@ -939,10 +954,12 @@ void SoundFix::startYoutubeDown(const QString &videoId)
 
     videoId.isEmpty();
 
+    youtubeDownProc.setWorkingDirectory("data");
+
     //youtubeDownProc.start("tools/youtube-dl.exe", QStringList() <<
     //        QString("http://www.youtube.com/watch?v=%1").arg(videoId) <<
-    //        "--cookies" << "data/cookies.txt");
-    youtubeDownProc.start("python.exe tools/delay.py tools/download.txt 0.02");
+    //        "--cookies" << "cookies.txt");
+    youtubeDownProc.start("python.exe ../tools/delay.py ../tools/download.txt 0.00");
 }
 
 void SoundFix::cleanupYoutubeDown()
@@ -1037,12 +1054,51 @@ void SoundFix::youtubeDownFinished(int exitCode)
 
 void SoundFix::cleanupAudioSync()
 {
-    identProgressBar.setMaximum(100);
-    identProgressBar.setValue(identProgressBar.maximum());
+}
+
+int progressCallback(void *arg, const char *step, int progress)
+{
+    SoundFix *ptr = (SoundFix *)arg;
+    return ptr->updateAudioSyncProgress(step, progress);
+}
+
+int SoundFix::updateAudioSyncProgress(const char *step, int progress)
+{
+    if (step) syncProgressBar.setLabelText(step);
+    syncProgressBar.setValue(400+progress);
+
+    QApplication::processEvents();
+
+    return syncProgressBar.wasCanceled();
 }
 
 void SoundFix::runAudioSync()
 {
     cleanupAudioSync();
 
+    syncProgressBar.setCancelButtonText("Cancel");
+    syncProgressBar.setMinimum(0);
+    syncProgressBar.setMaximum(1400);
+    syncProgressBar.setMinimumDuration(1);
+
+    syncProgressBar.setLabelText("Extracting audio...");
+    syncProgressBar.setValue(0);
+
+    QFile("data/youtube.wav").remove();
+
+    QProcess ffmpegYtWav;
+    ffmpegYtWav.start("tools/ffmpeg.exe", QStringList() << "-i" <<
+            QString("data/%1").arg(youtubeDownDestination) <<
+            "-f" << "wav" <<
+            "-ac" << "1" <<
+            "-ar" << "44100" <<
+            "data/youtube.wav");
+    if (!ffmpegYtWav.waitForFinished())
+        { error("Audio load error", "Cannot extract audio from youtube."); return; }
+
+    // specpp_compare calls our callback with labels and
+    //   progress values [0...1000] which we need to offset by whatever (see setMaximum)
+
+    if (!specpp_compare("data/youtube.wav", "data/sample.wav", progressCallback, this))
+        { error("Audio sync error", "Cannot synchronize audio tracks."); return; }
 }

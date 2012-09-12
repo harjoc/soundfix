@@ -5,6 +5,8 @@
 #include "kiss_fft/kiss_fftr.h"
 #include "wav.h"
 
+#include "specpp.h"
+
 #pragma warning(disable:4996)
 
 #define M_PI 3.14159265358979323846f
@@ -23,6 +25,9 @@ int ws1 = 65;
 int ws2 = 90;
 int band0 = period/2*0/5;
 int band1 = period/2*5/5;
+
+SpecppCallback callback_fn = 0;
+void* callback_arg = 0;
 
 struct Score {
 	int score;
@@ -75,7 +80,7 @@ int int_cmp(const void *a, const void *b)
 }
 
 bool Song::load()
-{
+{    
 	if (!read_wav(fname, &isamples, &nsamp))
 		return false;
 
@@ -158,7 +163,7 @@ void Song::process()
 
 // TODO make threading dynamic
 
-#define THREAD_NUM 1
+#define THREAD_NUM 4
 
 #if THREAD_NUM>1
 HANDLE thread_handles[THREAD_NUM];
@@ -251,7 +256,7 @@ void match()
 	int nscores = s2.npoints-1 + s1.npoints-1;
 	qsort(scores, nscores, sizeof(Score), int_cmp);
 
-	int s=1; 
+    int s=1;
 	while (abs(scores[0].ofs - scores[s].ofs) < 20)
 		s++;
 
@@ -300,40 +305,56 @@ void gen_ws_hannings()
 
 }
 
-bool specpp_compare(const char *fname1, const char *fname2)
+void specpp_init()
 {
-	//printf("=== %s %s ===\n", args[0], args[1]);
+    hann_fft = new float[period];
+    for (int n=0; n<period; n++)
+        hann_fft[n] = 0.5f * (1.0f - cos(2.0f * M_PI * n / (period-1)));
+
+    gen_ws_hannings();
+
+    kcfg = kiss_fftr_alloc(period, 0, 0, 0);
+
+    #if THREAD_NUM>1
+    init_match_workers();
+    #endif
+}
+
+void specpp_cleanup()
+{
+}
+
+// five steps
+bool specpp_compare(const char *fname1, const char *fname2, SpecppCallback cb, void *cb_arg)
+{
+    callback_fn = cb;
+    callback_arg = cb_arg;
 
 	s1.cleanup();
 	s2.cleanup();
     s1.fname = fname1;
     s2.fname = fname2;
+
+    callback_fn(callback_arg, "Loading first audio track...", 0);
 	if (!s1.load()) return false;
+
+    callback_fn(callback_arg, "Loading second audio track...", 300);
 	if (!s2.load()) return false;
 
 	delete scores;
 	scores = new Score[s2.npoints-1 + s1.npoints-1];
 
+    callback_fn(callback_arg, "Processing first audio track...", 400);
 	s1.process();
+
+    callback_fn(callback_arg, "Processing second audio track...", 500);
 	s2.process();
+
+    callback_fn(callback_arg, "Synchronizing audio tracks...", 600);
 	match();
 
+    callback_fn(callback_arg, "Done!", 1000);
 	print_scores();
 	
 	return true;
-}
-
-void specpp_init()
-{
-	hann_fft = new float[period];
-	for (int n=0; n<period; n++)
-		hann_fft[n] = 0.5f * (1.0f - cos(2.0f * M_PI * n / (period-1)));
-
-	gen_ws_hannings();
-
-	kcfg = kiss_fftr_alloc(period, 0, 0, 0);
-	
-	#if THREAD_NUM>1
-	init_match_workers();
-    #endif
 }

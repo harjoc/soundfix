@@ -53,7 +53,8 @@ bool read_wav(const char *fname, short **samples, int *len)
 			BREAK;
 		if (fmt.SubchunkID != 0x20746d66)
 			BREAK;
-		if (fmt.SubchunkSize != 16)
+        if (fmt.SubchunkSize != 16 &&
+            fmt.SubchunkSize != 18) // ffmpeg from winff-1.4.2 uses this size
 			BREAK;
 		if (fmt.AudioFormat != 1)
 			BREAK;
@@ -63,6 +64,10 @@ bool read_wav(const char *fname, short **samples, int *len)
 			BREAK;
 		if (fmt.BitsPerSample != 16)
 			BREAK;
+
+        int fmtJunk = fmt.SubchunkSize - 16;
+        if (fmtJunk)
+            fseek(f, fmtJunk, SEEK_CUR);
 
 		if (fread(&data, 1, sizeof(data), f) != sizeof(data))
 			BREAK;

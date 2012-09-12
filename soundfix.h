@@ -82,9 +82,12 @@ private:
     void startYoutubeDown(const QString &videoId);
     void cleanupYoutubeDown();
 
-    // sync audio
+    // audio sync
     void cleanupAudioSync();
     void runAudioSync();
+
+    public: int updateAudioSyncProgress(const char *step, int progress);
+    private:
 
     // === members ===
 
@@ -127,6 +130,9 @@ private:
     QProcess youtubeDownProc;
     QString youtubeDownStdout;
     QString youtubeDownDestination;
+
+    // audio sync
+    QProgressDialog syncProgressBar;
 };
 
 #endif // SOUNDFIX_H

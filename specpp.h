@@ -1,4 +1,8 @@
 #pragma once
 
+typedef int (*SpecppCallback)(void *arg, const char *step, int progress);
+
 void specpp_init();
-bool specpp_compare(const char *f1, const char *f2);
+void specpp_cleanup();
+bool specpp_compare(const char *fname1, const char *fname2, SpecppCallback cb, void *cb_arg);
+
