@@ -16,6 +16,8 @@
 
 //#define USE_MIDOMI
 
+#define TEST_IDENT_SRV "localhost"
+
 SoundFix::SoundFix(QWidget *parent) :
     QMainWindow(parent),
     ui(new Ui::SoundFix)
@@ -338,7 +340,7 @@ void SoundFix::sockConnected()
                 #ifdef USE_MIDOMI
                 "Host: api.midomi.com:443\r\n"
                 #else
-                "Host: patraulea.com:80\r\n"
+                "Host: " TEST_IDENT_SRV ":80\r\n"
                 #endif
                 "Connection: Keep-Alive\r\n"
                 "Cookie: %1\r\n"
@@ -365,7 +367,7 @@ void SoundFix::sockConnected()
                 "Host: api.midomi.com:443\r\n"
                 "Transfer-Encoding: chunked\r\n"
                 #else
-                "Host: patraulea.com:80\r\n"
+                "Host: " TEST_IDENT_SRV ":80\r\n"
                 "Content-Length: 0\r\n"
                 #endif
                 "User-Agent: %1\r\n"
@@ -604,7 +606,7 @@ void SoundFix::getSession()
     #ifdef USE_MIDOMI
     sock->connectToHost("api.midomi.com", 443);
     #else
-    sock->connectToHost("patraulea.com", 80);
+    sock->connectToHost(TEST_IDENT_SRV, 80);
     #endif
 }
 
@@ -617,7 +619,7 @@ void SoundFix::postSample()
     #ifdef USE_MIDOMI
     sock->connectToHost("search.midomi.com", 443);
     #else
-    sock->connectToHost("patraulea.com", 80);
+    sock->connectToHost(TEST_IDENT_SRV, 80);
     #endif
 }
 
