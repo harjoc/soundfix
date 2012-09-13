@@ -19,7 +19,7 @@
 
 #include "specpp.h"
 
-//#define USE_MIDOMI
+#define USE_MIDOMI
 
 #define TEST_IDENT_SRV "localhost"
 
@@ -198,7 +198,7 @@ void SoundFix::startIdentification()
     identProgressBar.setMinimum(0);
     identProgressBar.setMaximum(100);
     identProgressBar.setValue(0);
-    identProgressBar.setMinimumDuration(1500);
+    identProgressBar.setMinimumDuration(1000);
 
     identSubstep = IDENTIFY_EXTRACT_AUDIO;
     continueIdentification();
@@ -532,7 +532,6 @@ void SoundFix::sockReadyRead()
 
     sockBuf.truncate(contentLength);
     printf("---\n%s\n---\n", sockBuf.toAscii().data());
-    cleanupIdentification();
 
     if (identSubstep == IDENTIFY_GET_SESSION)
         processSessionResponse();
