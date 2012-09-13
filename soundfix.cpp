@@ -80,6 +80,12 @@ SoundFix::SoundFix(QWidget *parent) :
     ui->offsetsTable->horizontalHeaderItem(1)->setTextAlignment(Qt::AlignLeft);
     ui->offsetsTable->horizontalHeaderItem(2)->setTextAlignment(Qt::AlignLeft);
 
+    player = Phonon::createPlayer(Phonon::MusicCategory, Phonon::MediaSource(""));
+    player->setParent(this);
+
+    connect(player, SIGNAL(stateChanged(Phonon::State, Phonon::State)), this,
+            SLOT(playerStateChanged(Phonon::State)));
+
     // test
     QTimer::singleShot(0, this, SLOT(appReady()));
 }
@@ -95,7 +101,7 @@ void SoundFix::appReady()
     //startYoutubeDown("CU8V4BSuRKI");
 
     youtubeDownDestination = "CU8V4BSuRKI.flv";
-    //runAudioSync();
+    runAudioSync();
 }
 
 void SoundFix::closeEvent(QCloseEvent *event)
@@ -1105,18 +1111,18 @@ void SoundFix::runAudioSync()
     // specpp_compare calls our callback with labels and
     // progress values [0...1000] which we need to offset by whatever (see setMaximum)
 
-    if (!specpp_compare("data/youtube.wav", "data/sample.wav", progressCallback, this,
+    /*if (!specpp_compare("data/youtube.wav", "data/sample.wav", progressCallback, this,
             //scores
             3, MAX_SYNC_OFFSETS, 75, &retOffsets, offsets, confidences))
-        { error("Audio sync error", "Cannot synchronize audio tracks."); return; }
+        { error("Audio sync error", "Cannot synchronize audio tracks."); return; }*/
 
-    /*syncProgressBar.setValue(1400);
+    syncProgressBar.setValue(1400);
 
     retOffsets = 2;
     offsets[0] = 403000;
     confidences[0] = 100.0f;
     offsets[1] = 503000;
-    confidences[1] = 95.5f;*/
+    confidences[1] = 95.5f;
 
     // add offsets
 
@@ -1154,7 +1160,7 @@ QPushButton *SoundFix::buttonFromOffsetRow(int row)
 
 void SoundFix::playSyncAudio(int row)
 {
-    if (false/*!player->isValid()*/) {
+    if (!player->isValid()) {
         printf("sound not available\n");
         QProcess *startWav = new QProcess(this);
         connect(startWav, SIGNAL(finished(int)), startWav, SLOT(deleteLater()));
@@ -1169,30 +1175,36 @@ void SoundFix::playSyncAudio(int row)
     }
 }
 
-//        player->stop();
-//player->clear();
-//playingRow = -1;
+void SoundFix::playerStateChanged(Phonon::State state)
+{
+    if (state == Phonon::PausedState) {
+        QPushButton *playingButton = buttonFromOffsetRow(playingRow);
+        if (!playingButton) return;
+
+        playingButton->setIcon(QIcon("play.png"));
+        playingRow = -1;
+    }
+}
 
 void SoundFix::playOffset()
 {
     QPushButton *button = (QPushButton *)QObject::sender();
     if (!button) return;
 
+    player->stop();
+    player->setCurrentSource(QUrl(""));
+
     if (playingRow >= 0) {
         QPushButton *playingButton = buttonFromOffsetRow(playingRow);
         if (!playingButton) return;
 
-        if (playingButton != button) {
-            information("Audio already playing", "Audio is already playing. You must stop it first.");
-        } else {
-            player->stop();
-            // when player emits "stateChanged(StoppedState)" we'll restore the "play" icon
-        }
+        playingButton->setIcon(QIcon("play.png"));
 
-        return;
+        playingRow = -1;
+
+        if (playingButton == button)
+            return;
     }
-
-    button->setIcon(QIcon("play.png"));
 
     int row;
     for (row=0; row<ui->offsetsTable->rowCount(); row++)
@@ -1204,27 +1216,18 @@ void SoundFix::playOffset()
 
     ui->offsetsTable->selectRow(row);
 
-    if (!specpp_mix(offsets[row], "data/mix.wav"))
-        { error("Error mixing audio tracks", "Could not create audio mix."); return; }
+    // TODO undebug
+    //if (!specpp_mix(offsets[row], "data/mix.wav"))
+    //    { error("Error mixing audio tracks", "Could not create audio mix."); return; }
 
     playSyncAudio(row);
 }
 
 void SoundFix::on_saveBtn_clicked()
 {
-    if (player && player->state() != Phonon::StoppedState) {
-        player->stop();
-        return;
-    }
-
-    delete player;
-    player = Phonon::createPlayer(Phonon::MusicCategory, Phonon::MediaSource("data/mix.wav"));
-    player->setParent(this);
-    player->play();
-
-/*    QList<QModelIndex> rows = ui->offsetsTable->selectionModel()->selectedRows();
+    QList<QModelIndex> rows = ui->offsetsTable->selectionModel()->selectedRows();
     if (rows.isEmpty()) {
         information("No offset is selected", "Please select a time offset from the list above.");
         return;
-    }*/
+    }
 }

@@ -19,6 +19,7 @@ class QButtonGroup;
 
 namespace Phonon {
     class MediaObject;
+    enum State;
 };
 
 class SoundFix : public QMainWindow
@@ -57,6 +58,7 @@ private slots:
 
     // audio sync
     void playOffset();
+    void playerStateChanged(Phonon::State);
 
     void on_saveBtn_clicked();
 
