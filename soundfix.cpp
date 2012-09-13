@@ -69,7 +69,7 @@ SoundFix::SoundFix(QWidget *parent) :
     specpp_init();
 
     ui->offsetsTable->setHorizontalHeaderLabels(
-            QStringList() << "Play" << "Time offset" << "Confidence");
+            QStringList() << "Test" << "Time offset" << "Confidence");
 
     ui->offsetsTable->setColumnWidth(0, 40);
     ui->offsetsTable->setColumnWidth(1, 90);
@@ -1103,18 +1103,18 @@ void SoundFix::runAudioSync()
     // specpp_compare calls our callback with labels and
     // progress values [0...1000] which we need to offset by whatever (see setMaximum)
 
-    /*if (!specpp_compare("data/youtube.wav", "data/sample.wav", progressCallback, this,
+    if (!specpp_compare("data/youtube.wav", "data/sample.wav", progressCallback, this,
             //scores
             3, MAX_SYNC_OFFSETS, 75, &retOffsets, offsets, confidences))
-        { error("Audio sync error", "Cannot synchronize audio tracks."); return; }*/
+        { error("Audio sync error", "Cannot synchronize audio tracks."); return; }
 
-    syncProgressBar.setValue(1400);
+    /*syncProgressBar.setValue(1400);
 
     retOffsets = 2;
     offsets[0] = 403000;
     confidences[0] = 100.0f;
     offsets[1] = 503000;
-    confidences[1] = 95.5f;
+    confidences[1] = 95.5f;*/
 
     // add offsets
 
@@ -1144,9 +1144,37 @@ void SoundFix::runAudioSync()
     }
 }
 
-bool SoundFix::mixSyncAudio(int )
+QPushButton *SoundFix::buttonFromOffsetRow(int row)
 {
-    return true;
+    QHBoxLayout *layout = (QHBoxLayout *)ui->offsetsTable->cellWidget(row, 0);
+    return (QPushButton *)layout->children().first();
+}
+
+struct WavHeader {
+    int ChunkID;
+    int ChunkSize;
+    int Format;
+};
+
+struct WavFmt {
+    int SubchunkID;
+    int SubchunkSize;
+    short AudioFormat;
+    short NumChannels;
+    int SampleRate;
+    int ByteRate;
+    short BlockAlign;
+    short BitsPerSample;
+};
+
+struct WavData {
+    int SubchunkID;
+    int SubchunkSize;
+};
+
+void SoundFix::playSyncAudio(int row)
+{
+    buttonFromOffsetRow(row)->setIcon(QIcon("stop.png"));
 }
 
 void SoundFix::playOffset()
@@ -1155,19 +1183,19 @@ void SoundFix::playOffset()
     if (!button) return;
 
     int row;
-    for (row=0; row<ui->offsetsTable->rowCount(); row++) {
-        QHBoxLayout *layout = (QHBoxLayout *)ui->offsetsTable->cellWidget(row, 0);
-        if (layout->children().first() == button)
+    for (row=0; row<ui->offsetsTable->rowCount(); row++)
+        if (buttonFromOffsetRow(row) == button)
             break;
-    }
 
     if (row==ui->offsetsTable->rowCount())
         return;
 
     ui->offsetsTable->selectRow(row);
 
-    if (!mixSyncAudio(row))
-        return;
+    if (!specpp_mix(offsets[row], "data/mix.wav"))
+        { error("Error mixing audio tracks", "Could not create audio mix."); return; }
+
+    playSyncAudio(row);
 }
 
 void SoundFix::on_saveBtn_clicked()

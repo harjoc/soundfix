@@ -91,6 +91,8 @@ private:
     void cleanupAudioSync();
     void runAudioSync();
     bool mixSyncAudio(int row);
+    void playSyncAudio(int row);
+    QPushButton *buttonFromOffsetRow(int row);
 
     public: int updateAudioSyncProgress(const char *step, int progress);
     private:

@@ -4,28 +4,6 @@
 
 #pragma warning(disable:4996)
 
-struct WavHeader {
-	int ChunkID;
-	int ChunkSize;
-	int Format;
-};
-
-struct WavFmt {
-	int SubchunkID;
-	int SubchunkSize;
-	short AudioFormat;
-	short NumChannels;
-	int SampleRate;
-	int ByteRate;
-	short BlockAlign;
-	short BitsPerSample;
-};
-
-struct WavData {
-	int SubchunkID;
-	int SubchunkSize;
-};
-
 bool read_wav(const char *fname, short **samples, int *len)
 {
 	FILE *f = NULL; 
@@ -43,7 +21,7 @@ bool read_wav(const char *fname, short **samples, int *len)
 		if (!f) BREAK;
 
 		if (fread(&hdr, 1, sizeof(hdr), f) != sizeof(hdr))
-			BREAK;
+            BREAK;
 		if (hdr.ChunkID != 0x46464952)
 			BREAK;
 		if (hdr.Format != 0x45564157)

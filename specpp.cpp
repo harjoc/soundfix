@@ -404,7 +404,7 @@ bool specpp_compare(const char *fname1, const char *fname2, SpecppCallback cb, v
 
 	s2.process();
 
-    if (callback_fn(callback_arg, "Synchronizing audio tracks...", 600))
+    if (callback_fn(callback_arg, "Synchronizing audio tracks...", 580))
         return true;
 
 	match();
@@ -417,4 +417,72 @@ bool specpp_compare(const char *fname1, const char *fname2, SpecppCallback cb, v
     clusterScores(minOffsets, maxOffsets, minConfidence, retOffsets, offsets, confidences);
 	
 	return true;
+}
+
+bool specpp_mix(int ofs, const char *fname)
+{
+    FILE *f = fopen(fname, "wb");
+    if (!f) return false;
+
+    // reference system is with 0 at s1.0
+    // begin, end
+    int b1 = 0;
+    int e1 = s1.nsamp;
+    int b2 = ofs;
+    int e2 = ofs + s2.nsamp;
+
+    int b = b1;
+    if (b2 > b) b = b2;
+
+    int e = e1;
+    if (e2 < e) e = e2;
+
+    int nsamples = e-b;
+
+    WavHeader hdr = {};
+    hdr.ChunkID = 0x46464952;
+    hdr.ChunkSize = sizeof(WavFmt)-2*sizeof(int) + sizeof(WavFmt) + sizeof(WavData) + nsamples*2;
+    hdr.Format = 0x45564157;
+
+    WavFmt fmt = {};
+    fmt.SubchunkID = 0x20746d66;
+    fmt.SubchunkSize = sizeof(WavFmt)-2*sizeof(int);
+    fmt.AudioFormat = 1;
+    fmt.NumChannels = 1;
+    fmt.SampleRate = 44100;
+    fmt.ByteRate = 44100*2;
+    fmt.BlockAlign = 2;
+    fmt.BitsPerSample = 16;
+
+    WavData data = {};
+    data.SubchunkID = 0x61746164;
+    data.SubchunkSize = nsamples*2;
+
+    fwrite(&hdr,  1, sizeof(hdr),  f);
+    fwrite(&fmt,  1, sizeof(fmt),  f);
+    fwrite(&data, 1, sizeof(data), f);
+
+    for (int p=b; p<e; ) {
+        short buf[1024];
+        int buflen = e-p;
+        if (buflen > sizeof(buf)/2)
+            buflen = sizeof(buf)/2;
+
+        // play tracks alternately in 3 second intervals
+
+        if ((p-b)/44100 % 6 < 3)
+            for (int i=0; i<buflen; i++)
+                buf[i] = s1.isamples[p+i];
+        else
+            for (int i=0; i<buflen; i++)
+                buf[i] = s2.isamples[-ofs+p+i]/2;
+
+        fwrite(buf, 1, buflen*2, f);
+
+        p += buflen;
+    }
+
+    fclose(f);
+
+    return true;
 }
