@@ -69,13 +69,13 @@ SoundFix::SoundFix(QWidget *parent) :
     specpp_init();
 
     ui->offsetsTable->setHorizontalHeaderLabels(
-            QStringList() << "Use" << "Play" << "Offset");
+            QStringList() << "Play" << "Time offset" << "Confidence");
 
-    ui->offsetsTable->setColumnWidth(0, 30);
-    ui->offsetsTable->setColumnWidth(1, 40);
+    ui->offsetsTable->setColumnWidth(0, 40);
+    ui->offsetsTable->setColumnWidth(1, 90);
 
     //ui->offsetsTable->horizontalHeaderItem(0)->setTextAlignment(Qt::AlignLeft);
-    //ui->offsetsTable->horizontalHeaderItem(1)->setTextAlignment(Qt::AlignLeft);
+    ui->offsetsTable->horizontalHeaderItem(1)->setTextAlignment(Qt::AlignLeft);
     ui->offsetsTable->horizontalHeaderItem(2)->setTextAlignment(Qt::AlignLeft);
 
     // test
@@ -1054,6 +1054,7 @@ void SoundFix::youtubeDownFinished(int exitCode)
 
 void SoundFix::cleanupAudioSync()
 {
+    syncProgressBar.setValue(1400);
 }
 
 int progressCallback(void *arg, const char *step, int progress)
@@ -1093,12 +1094,88 @@ void SoundFix::runAudioSync()
             "-ac" << "1" <<
             "-ar" << "44100" <<
             "data/youtube.wav");
-    if (!ffmpegYtWav.waitForFinished())
-        { error("Audio load error", "Cannot extract audio from youtube."); return; }
+    if (!ffmpegYtWav.waitForFinished()) {
+        error("Audio load error", "Cannot extract audio from youtube.");
+        cleanupAudioSync();
+        return;
+    }
 
     // specpp_compare calls our callback with labels and
-    //   progress values [0...1000] which we need to offset by whatever (see setMaximum)
+    // progress values [0...1000] which we need to offset by whatever (see setMaximum)
 
-    if (!specpp_compare("data/youtube.wav", "data/sample.wav", progressCallback, this))
-        { error("Audio sync error", "Cannot synchronize audio tracks."); return; }
+    /*if (!specpp_compare("data/youtube.wav", "data/sample.wav", progressCallback, this,
+            //scores
+            3, MAX_SYNC_OFFSETS, 75, &retOffsets, offsets, confidences))
+        { error("Audio sync error", "Cannot synchronize audio tracks."); return; }*/
+
+    syncProgressBar.setValue(1400);
+
+    retOffsets = 2;
+    offsets[0] = 403000;
+    confidences[0] = 100.0f;
+    offsets[1] = 503000;
+    confidences[1] = 95.5f;
+
+    // add offsets
+
+    for (int i=0; i<retOffsets; i++) {
+        int row = ui->offsetsTable->rowCount();
+        ui->offsetsTable->insertRow(row);
+        if (row==0) ui->offsetsTable->selectRow(0);
+
+        QWidget* w0 = new QWidget;
+        QPushButton *button = new QPushButton(w0);
+        button->setIcon(QIcon("play.png"));
+        QHBoxLayout* layout0 = new QHBoxLayout(w0);
+        layout0->addWidget(button);
+        layout0->setAlignment(Qt::AlignCenter);
+        layout0->setSpacing(0);
+        layout0->setMargin(0);
+        w0->setLayout(layout0);
+        ui->offsetsTable->setCellWidget(row, 0, w0);
+
+        connect(button, SIGNAL(clicked()), this, SLOT(playOffset()));
+
+        QString offstr = QString().sprintf("%.2f sec", ((float)offsets[i])/44100.0f);
+        ui->offsetsTable->setItem(row, 1, new QTableWidgetItem(offstr));
+
+        QString confstr = QString().sprintf("%.1f%%", confidences[i]);
+        ui->offsetsTable->setItem(row, 2, new QTableWidgetItem(confstr));
+    }
+}
+
+bool SoundFix::mixSyncAudio(int )
+{
+    return true;
+}
+
+void SoundFix::playOffset()
+{
+    QObject *button = QObject::sender();
+    if (!button) return;
+
+    int row;
+    for (row=0; row<ui->offsetsTable->rowCount(); row++) {
+        QHBoxLayout *layout = (QHBoxLayout *)ui->offsetsTable->cellWidget(row, 0);
+        if (layout->children().first() == button)
+            break;
+    }
+
+    if (row==ui->offsetsTable->rowCount())
+        return;
+
+    ui->offsetsTable->selectRow(row);
+
+    if (!mixSyncAudio(row))
+        return;
+}
+
+void SoundFix::on_saveBtn_clicked()
+{
+    QList<QModelIndex> rows = ui->offsetsTable->selectionModel()->selectedRows();
+    if (rows.isEmpty()) {
+        information("No offset is selected", "Please select a time offset from the list above.");
+        return;
+    }
+
 }

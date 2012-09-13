@@ -324,9 +324,55 @@ void specpp_cleanup()
 {
 }
 
-// five steps
-bool specpp_compare(const char *fname1, const char *fname2, SpecppCallback cb, void *cb_arg)
+void clusterScores(int minOffsets, int maxOffsets, int minConfidence, int *retOffsets, int *offsets, float *confidences)
 {
+    if (scores[0].score==0) {
+        *retOffsets = 1;
+        offsets[0] = 0;
+        confidences[0] = 0;
+        return;
+    }
+
+    int nscores = s2.npoints-1 + s1.npoints-1;
+    if (nscores > 10000)
+        nscores = 10000;
+
+    int nret=0;
+    int start=0;
+
+    for (;;) {
+        if ((nret == maxOffsets) || (nret >= minOffsets && confidences[nret-1] < minConfidence))
+            break;
+
+        int minOfs = scores[start].ofs;
+        int maxOfs = scores[start].ofs;
+
+        int end;
+        for (end=start+1; end<nscores; end++) {
+            int ofs = scores[end].ofs;
+
+            int d = ofs - minOfs;
+            if (d < 0 && d > -20) minOfs = ofs;
+
+            d = maxOfs - ofs;
+            if (d < 0 && d < -20) maxOfs = ofs;
+        }
+
+        offsets[nret] = scores[start].ofs*step;
+        confidences[nret] = scores[start].score*100.0f/scores[0].score;
+        nret++;
+
+        start = end;
+    }
+
+    *retOffsets = nret;
+}
+
+// five steps
+bool specpp_compare(const char *fname1, const char *fname2, SpecppCallback cb, void *cb_arg,
+        int minOffsets, int maxOffsets, int minConfidence, int *retOffsets, int *offsets, float *confidences)
+{
+    *retOffsets = 0;
     callback_fn = cb;
     callback_arg = cb_arg;
 
@@ -335,26 +381,40 @@ bool specpp_compare(const char *fname1, const char *fname2, SpecppCallback cb, v
     s1.fname = fname1;
     s2.fname = fname2;
 
-    callback_fn(callback_arg, "Loading first audio track...", 0);
+    if (callback_fn(callback_arg, "Loading YouTube audio track...", 0))
+        return true;
+
 	if (!s1.load()) return false;
 
-    callback_fn(callback_arg, "Loading second audio track...", 300);
+    if (callback_fn(callback_arg, "Loading recorded audio track...", 300))
+        return true;
+
 	if (!s2.load()) return false;
 
 	delete scores;
 	scores = new Score[s2.npoints-1 + s1.npoints-1];
 
-    callback_fn(callback_arg, "Processing first audio track...", 400);
+    if (callback_fn(callback_arg, "Processing YouTube audio track...", 400))
+        return true;
+
 	s1.process();
 
-    callback_fn(callback_arg, "Processing second audio track...", 500);
+    if (callback_fn(callback_arg, "Processing recorded audio track...", 500))
+        return true;
+
 	s2.process();
 
-    callback_fn(callback_arg, "Synchronizing audio tracks...", 600);
+    if (callback_fn(callback_arg, "Synchronizing audio tracks...", 600))
+        return true;
+
 	match();
 
-    callback_fn(callback_arg, "Done!", 1000);
+    if (callback_fn(callback_arg, "Done!", 1000))
+        return true;
+
 	print_scores();
+
+    clusterScores(minOffsets, maxOffsets, minConfidence, retOffsets, offsets, confidences);
 	
 	return true;
 }

@@ -51,6 +51,11 @@ private slots:
     void youtubeDownError(QProcess::ProcessError);
     void youtubeDownFinished(int exitCode);
 
+    // audio sync
+    void playOffset();
+
+    void on_saveBtn_clicked();
+
 private:
     Ui::SoundFix *ui;
 
@@ -85,6 +90,7 @@ private:
     // audio sync
     void cleanupAudioSync();
     void runAudioSync();
+    bool mixSyncAudio(int row);
 
     public: int updateAudioSyncProgress(const char *step, int progress);
     private:
@@ -133,6 +139,11 @@ private:
 
     // audio sync
     QProgressDialog syncProgressBar;
+
+    #define MAX_SYNC_OFFSETS 10
+    int offsets[MAX_SYNC_OFFSETS];
+    float confidences[MAX_SYNC_OFFSETS];
+    int retOffsets;
 };
 
 #endif // SOUNDFIX_H
