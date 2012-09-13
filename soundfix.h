@@ -17,6 +17,10 @@ class QNetworkReply;
 class QNetworkAccessManager;
 class QButtonGroup;
 
+namespace Phonon {
+    class MediaObject;
+};
+
 class SoundFix : public QMainWindow
 {
     Q_OBJECT
@@ -146,6 +150,9 @@ private:
     int offsets[MAX_SYNC_OFFSETS];
     float confidences[MAX_SYNC_OFFSETS];
     int retOffsets;
+
+    Phonon::MediaObject *player;
+    int playingRow;
 };
 
 #endif // SOUNDFIX_H

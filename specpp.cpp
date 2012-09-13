@@ -422,7 +422,10 @@ bool specpp_compare(const char *fname1, const char *fname2, SpecppCallback cb, v
 bool specpp_mix(int ofs, const char *fname)
 {
     FILE *f = fopen(fname, "wb");
-    if (!f) return false;
+    if (!f) {
+        printf("can't create %s\n", fname);
+        return false;
+    }
 
     // reference system is with 0 at s1.0
     // begin, end

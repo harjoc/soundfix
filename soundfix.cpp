@@ -15,6 +15,7 @@
 #include <QCloseEvent>
 #include <QRadioButton>
 #include <QTextDocument>
+#include <Phonon>
 
 #include "specpp.h"
 
@@ -25,7 +26,8 @@
 SoundFix::SoundFix(QWidget *parent) :
     QMainWindow(parent),
     ui(new Ui::SoundFix),
-    radioGroup(new QButtonGroup(this))
+    radioGroup(new QButtonGroup(this)),
+    playingRow(-1)
 {
     ui->setupUi(this);
 
@@ -93,7 +95,7 @@ void SoundFix::appReady()
     //startYoutubeDown("CU8V4BSuRKI");
 
     youtubeDownDestination = "CU8V4BSuRKI.flv";
-    runAudioSync();
+    //runAudioSync();
 }
 
 void SoundFix::closeEvent(QCloseEvent *event)
@@ -1150,37 +1152,47 @@ QPushButton *SoundFix::buttonFromOffsetRow(int row)
     return (QPushButton *)layout->children().first();
 }
 
-struct WavHeader {
-    int ChunkID;
-    int ChunkSize;
-    int Format;
-};
-
-struct WavFmt {
-    int SubchunkID;
-    int SubchunkSize;
-    short AudioFormat;
-    short NumChannels;
-    int SampleRate;
-    int ByteRate;
-    short BlockAlign;
-    short BitsPerSample;
-};
-
-struct WavData {
-    int SubchunkID;
-    int SubchunkSize;
-};
-
 void SoundFix::playSyncAudio(int row)
 {
-    buttonFromOffsetRow(row)->setIcon(QIcon("stop.png"));
+    if (false/*!player->isValid()*/) {
+        printf("sound not available\n");
+        QProcess *startWav = new QProcess(this);
+        connect(startWav, SIGNAL(finished(int)), startWav, SLOT(deleteLater()));
+        connect(startWav, SIGNAL(error(QProcess::ProcessError)), startWav, SLOT(deleteLater()));
+
+        startWav->start("cmd.exe /c start ", QStringList() << "data/mix.wav");
+    } else {
+        buttonFromOffsetRow(row)->setIcon(QIcon("stop.png"));
+        player->setCurrentSource(QUrl("data/mix.wav"));
+        player->play();
+        playingRow = row;
+    }
 }
+
+//        player->stop();
+//player->clear();
+//playingRow = -1;
 
 void SoundFix::playOffset()
 {
-    QObject *button = QObject::sender();
+    QPushButton *button = (QPushButton *)QObject::sender();
     if (!button) return;
+
+    if (playingRow >= 0) {
+        QPushButton *playingButton = buttonFromOffsetRow(playingRow);
+        if (!playingButton) return;
+
+        if (playingButton != button) {
+            information("Audio already playing", "Audio is already playing. You must stop it first.");
+        } else {
+            player->stop();
+            // when player emits "stateChanged(StoppedState)" we'll restore the "play" icon
+        }
+
+        return;
+    }
+
+    button->setIcon(QIcon("play.png"));
 
     int row;
     for (row=0; row<ui->offsetsTable->rowCount(); row++)
@@ -1200,10 +1212,19 @@ void SoundFix::playOffset()
 
 void SoundFix::on_saveBtn_clicked()
 {
-    QList<QModelIndex> rows = ui->offsetsTable->selectionModel()->selectedRows();
-    if (rows.isEmpty()) {
-        information("No offset is selected", "Please select a time offset from the list above.");
+    if (player && player->state() != Phonon::StoppedState) {
+        player->stop();
         return;
     }
 
+    delete player;
+    player = Phonon::createPlayer(Phonon::MusicCategory, Phonon::MediaSource("data/mix.wav"));
+    player->setParent(this);
+    player->play();
+
+/*    QList<QModelIndex> rows = ui->offsetsTable->selectionModel()->selectedRows();
+    if (rows.isEmpty()) {
+        information("No offset is selected", "Please select a time offset from the list above.");
+        return;
+    }*/
 }
