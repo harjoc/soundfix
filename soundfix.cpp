@@ -267,7 +267,7 @@ void SoundFix::extractAudio()
     int secs  = re.cap(3).toInt();
     int hsecs = re.cap(4).toInt();
 
-    int durationMsec = (hours*3600 + mins*60 + secs)*1000 + hsecs*10;
+    durationMsec = (hours*3600 + mins*60 + secs)*1000 + hsecs*10;
     printf("duration: %d\n", durationMsec);
 
     if (durationMsec < SAMPLE_MSEC) {
@@ -1230,4 +1230,50 @@ void SoundFix::on_saveBtn_clicked()
         information("No offset is selected", "Please select a time offset from the list above.");
         return;
     }
+    int row = rows.first().row();
+
+    QString outputName = QFileDialog::getSaveFileName(this, "Save Video", QString(), "MP4 Videos (*.mp4)");
+    if (outputName.isNull())
+        return;
+
+    QFile(outputName).remove();
+
+    QString ss = QString().sprintf("%.2f", ((float)offsets[row])/44100.0f);
+    QString t = QString().sprintf("%.2f", ((float)durationMsec)/1000.0f);
+
+    QProcess ffmpegMerge;
+
+    QStringList args;
+    args <<
+        "-ss" << ss <<
+        "-t" << t <<
+        "-i" << "data/youtube.wav" <<
+        "-ss" << "0" <<
+        "-t" << t <<
+        "-i" << recordingName <<
+        "-map" << "0:0" <<
+        "-map" << "1:video" <<
+        "-f" << "mp4" <<
+        "-vcodec" << "copy" <<
+        "-acodec" << "libfaac" <<
+        outputName;
+
+    printf("running ffmpeg %s\n", args.join(" ").toAscii().data());
+
+    QProgressDialog encodeProgress;
+    encodeProgress.setLabelText("Encoding video...");
+    encodeProgress.setMinimum(0);
+    encodeProgress.setMaximum(100);
+    encodeProgress.setMinimumDuration(1000);
+    encodeProgress.setValue(0);
+    encodeProgress.show();
+
+    QApplication::processEvents();
+
+    ffmpegMerge.start("tools/ffmpeg.exe", args);
+    if (!ffmpegMerge.waitForFinished())
+        { error("Video encoder error", "Cannot encode YouTube audio into original video."); return; }
+
+    encodeProgress.setValue(100);
+    encodeProgress.hide();
 }

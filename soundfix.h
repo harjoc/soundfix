@@ -110,6 +110,8 @@ private:
     QProgressDialog identProgressBar;
 
     QString recordingName;
+    int durationMsec;
+
     QNetworkAccessManager* httpChartsMgr;
     QNetworkAccessManager* httpSearchMgr;
 
