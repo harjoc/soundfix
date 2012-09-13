@@ -90,18 +90,20 @@ SoundFix::SoundFix(QWidget *parent) :
     QTimer::singleShot(0, this, SLOT(appReady()));
 }
 
+// debug
 void SoundFix::appReady()
 {
+    return;
+
     recordingName = "data/tefalta.3gp";
     ui->videoEdit->setText(recordingName);        
-    //startIdentification();
-
     ui->songEdit->setText("Calambuco - Te Falta Ritmo");
 
-    //startYoutubeDown("CU8V4BSuRKI");
+    //startIdentification();
 
-    youtubeDownDestination = "CU8V4BSuRKI.flv";
-    runAudioSync();
+    //startYoutubeDown("CU8V4BSuRKI");
+    //youtubeDownDestination = "CU8V4BSuRKI.flv";
+    //runAudioSync();
 }
 
 void SoundFix::closeEvent(QCloseEvent *event)
@@ -746,11 +748,14 @@ void SoundFix::startYoutubeSearch(const QString &cleanSongName)
 
     youtubeSearchProc.setWorkingDirectory("data");
 
-    //youtubeSearchProc.start("tools/youtube-dl.exe", QStringList() <<
-    //        QString("ytsearch10:%1").arg(cleanSongName) <<
-    //        "--cookies" << "cookies.txt" <<
-    //        "-g" << "-e" << "--get-thumbnail");
-    youtubeSearchProc.start("python.exe ../tools/delay.py ../tools/search.txt 0");
+    // nondebug
+    youtubeSearchProc.start("tools/youtube-dl.exe", QStringList() <<
+            QString("ytsearch10:%1").arg(cleanSongName) <<
+            "--cookies" << "cookies.txt" <<
+            "-g" << "-e" << "--get-thumbnail");
+
+    // debug
+    //youtubeSearchProc.start("python.exe ../tools/delay.py ../tools/search.txt 0");
 
     ui->youtubeTable->setFocus();
 }
@@ -770,8 +775,6 @@ void SoundFix::cleanupYoutubeSearch()
     youtubeSearchProc.kill();
 
     thumbUrls.clear();
-    //while (!thumbMgrs.isEmpty())
-    //     delete thumbMgrs.takeFirst();
 
     youtubeLineNo = 0;
     thumbsStarted = 0;
@@ -806,6 +809,10 @@ void SoundFix::youtubeAddResult()
     ui->youtubeTable->verticalHeader()->resizeSection(row, 60);
 
     if (row==0) ui->youtubeTable->selectRow(0);
+
+    // col 0 ... just store the thumbUrl here, it's hidden
+
+    ui->youtubeTable->setItem(row, 0, new QTableWidgetItem(youtubeLines[2]));
 
     // col 3
 
@@ -941,9 +948,18 @@ void SoundFix::on_downloadBtn_clicked()
         information("No video is selected", "Please select a video to download from the list.");
         return;
     }
+    int row = rows.first().row();
 
-    // get videoId from row
-    //startYoutubeDown();
+    QString thumbUrl = ui->youtubeTable->item(row, 0)->text();
+    if (thumbUrl.isEmpty())
+        return;
+
+    QString videoId = getVideoId(thumbUrl);
+    if (videoId.isEmpty())
+        return;
+
+    // nondebug
+    startYoutubeDown(videoId);
 }
 
 void SoundFix::startYoutubeDown(const QString &videoId)
@@ -964,10 +980,13 @@ void SoundFix::startYoutubeDown(const QString &videoId)
 
     youtubeDownProc.setWorkingDirectory("data");
 
-    //youtubeDownProc.start("tools/youtube-dl.exe", QStringList() <<
-    //        QString("http://www.youtube.com/watch?v=%1").arg(videoId) <<
-    //        "--cookies" << "cookies.txt");
-    youtubeDownProc.start("python.exe ../tools/delay.py ../tools/download.txt 0.00");
+    // nondebug
+    youtubeDownProc.start("tools/youtube-dl.exe", QStringList() <<
+            QString("http://www.youtube.com/watch?v=%1").arg(videoId) <<
+            "--cookies" << "cookies.txt");
+
+    // debug
+    //youtubeDownProc.start("python.exe ../tools/delay.py ../tools/download.txt 0.00");
 }
 
 void SoundFix::cleanupYoutubeDown()
@@ -1111,18 +1130,20 @@ void SoundFix::runAudioSync()
     // specpp_compare calls our callback with labels and
     // progress values [0...1000] which we need to offset by whatever (see setMaximum)
 
-    /*if (!specpp_compare("data/youtube.wav", "data/sample.wav", progressCallback, this,
+    // nondebug
+    if (!specpp_compare("data/youtube.wav", "data/sample.wav", progressCallback, this,
             //scores
             3, MAX_SYNC_OFFSETS, 75, &retOffsets, offsets, confidences))
-        { error("Audio sync error", "Cannot synchronize audio tracks."); return; }*/
+        { error("Audio sync error", "Cannot synchronize audio tracks."); return; }
 
-    syncProgressBar.setValue(1400);
+    // debug
+    /*syncProgressBar.setValue(1400);
 
     retOffsets = 2;
     offsets[0] = 403000;
     confidences[0] = 100.0f;
     offsets[1] = 503000;
-    confidences[1] = 95.5f;
+    confidences[1] = 95.5f;*/
 
     // add offsets
 
@@ -1216,9 +1237,9 @@ void SoundFix::playOffset()
 
     ui->offsetsTable->selectRow(row);
 
-    // TODO undebug
-    //if (!specpp_mix(offsets[row], "data/mix.wav"))
-    //    { error("Error mixing audio tracks", "Could not create audio mix."); return; }
+    // nondebug
+    if (!specpp_mix(offsets[row], "data/mix.wav"))
+        { error("Error mixing audio tracks", "Could not create audio mix."); return; }
 
     playSyncAudio(row);
 }
