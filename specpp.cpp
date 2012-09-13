@@ -163,7 +163,7 @@ void Song::process()
 
 // TODO make threading dynamic
 
-#define THREAD_NUM 4
+#define THREAD_NUM 2
 
 #if THREAD_NUM>1
 HANDLE thread_handles[THREAD_NUM];

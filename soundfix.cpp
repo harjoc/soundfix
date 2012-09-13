@@ -23,6 +23,19 @@
 
 #define TEST_IDENT_SRV "localhost"
 
+/*
+- normalize volume
+- utf8 in midomi response
+- youtube-dl uses ipv6
+- offsets are wrong from 2nd on
+- append to log
+- it loads localhost for youtube play urls
+- update default button after each step
+- margin for youtube titles
+- make progressbars modal (on top)
+- handle less than 10 youtube results
+*/
+
 SoundFix::SoundFix(QWidget *parent) :
     QMainWindow(parent),
     ui(new Ui::SoundFix),
