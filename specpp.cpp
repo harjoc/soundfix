@@ -322,6 +322,7 @@ void specpp_init()
 
 void specpp_cleanup()
 {
+    // TODO
 }
 
 void clusterScores(int minOffsets, int maxOffsets, int minConfidence, int *retOffsets, int *offsets, float *confidences)
@@ -338,31 +339,30 @@ void clusterScores(int minOffsets, int maxOffsets, int minConfidence, int *retOf
         nscores = 10000;
 
     int nret=0;
-    int start=0;
 
     for (;;) {
         if ((nret == maxOffsets) || (nret >= minOffsets && confidences[nret-1] < minConfidence))
             break;
 
-        int minOfs = scores[start].ofs;
-        int maxOfs = scores[start].ofs;
+        int p;
+        for (p = 0; p<nscores; p++) {
+            int ofs = scores[p].ofs*step;
 
-        int end;
-        for (end=start+1; end<nscores; end++) {
-            int ofs = scores[end].ofs;
+            int l;
+            for (l=0; l<nret; l++)
+                if (abs(ofs-offsets[l]) < 20*step)
+                    break;
 
-            int d = ofs - minOfs;
-            if (d < 0 && d > -20) minOfs = ofs;
-
-            d = maxOfs - ofs;
-            if (d < 0 && d < -20) maxOfs = ofs;
+            if (l==nret) {
+                offsets[nret] = ofs;
+                confidences[nret] = scores[p].score*100.0f/scores[0].score;
+                nret++;
+                break;
+            }
         }
 
-        offsets[nret] = scores[start].ofs*step;
-        confidences[nret] = scores[start].score*100.0f/scores[0].score;
-        nret++;
-
-        start = end;
+        if (p==nscores)
+            break;
     }
 
     *retOffsets = nret;
