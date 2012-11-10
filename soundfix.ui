@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>486</width>
-    <height>622</height>
+    <height>615</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -249,9 +249,50 @@
      </widget>
     </item>
     <item>
-     <widget class="QLabel" name="label_5">
+     <layout class="QHBoxLayout" name="horizontalLayout_8">
+      <item>
+       <widget class="QLabel" name="label_5">
+        <property name="text">
+         <string>Tempo adjustment: </string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QComboBox" name="tempoCombo">
+        <property name="sizePolicy">
+         <sizepolicy hsizetype="Maximum" vsizetype="Fixed">
+          <horstretch>0</horstretch>
+          <verstretch>0</verstretch>
+         </sizepolicy>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="tempoInfoLabel">
+        <property name="text">
+         <string>(not required)</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <spacer name="horizontalSpacer_5">
+        <property name="orientation">
+         <enum>Qt::Horizontal</enum>
+        </property>
+        <property name="sizeHint" stdset="0">
+         <size>
+          <width>186</width>
+          <height>14</height>
+         </size>
+        </property>
+       </spacer>
+      </item>
+     </layout>
+    </item>
+    <item>
+     <widget class="QLabel" name="label_4">
       <property name="text">
-       <string>Synchronize YouTube audio with recorded audio:</string>
+       <string>Synchronization results (pick the time offset that sounds right):</string>
       </property>
      </widget>
     </item>
@@ -304,11 +345,21 @@
        </sizepolicy>
       </property>
       <property name="text">
-       <string>Save selected video</string>
+       <string>Save video with selected time offset</string>
       </property>
      </widget>
     </item>
    </layout>
+   <zorder>line_2</zorder>
+   <zorder>label_7</zorder>
+   <zorder>youtubeTable</zorder>
+   <zorder>line_3</zorder>
+   <zorder>label_8</zorder>
+   <zorder>label_4</zorder>
+   <zorder>offsetsTable</zorder>
+   <zorder>saveBtn</zorder>
+   <zorder></zorder>
+   <zorder>horizontalSpacer_5</zorder>
   </widget>
  </widget>
  <layoutdefault spacing="6" margin="11"/>
