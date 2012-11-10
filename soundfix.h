@@ -73,6 +73,7 @@ private:
     void startIdentification();
     void continueIdentification();
     void cleanupIdentification();
+    bool getVideoInfo();
     void extractAudio();
     void collectCookies();
     void getSession();
@@ -124,7 +125,7 @@ private:
     QTcpSocket *sock;
 
     QString headers;
-    QString sockBuf;
+    QByteArray sockBuf;
     int contentLength;
 
     QTimer *speexTimer;

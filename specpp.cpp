@@ -19,12 +19,14 @@ float *hann_fft;
 float *hann_ws1;
 float *hann_ws2;
 
+const int h = period/2;
+
 int maxthresh = 103;
 int minthresh = 91;
 int ws1 = 65;
-int ws2 = 90;
-int band0 = period/2*0/5;
-int band1 = period/2*5/5;
+int ws2 = ws1*35/10;
+int band0 = h*1/45;
+int band1 = h*45/45;
 
 SpecppCallback callback_fn = 0;
 void* callback_arg = 0;
@@ -66,6 +68,11 @@ struct Song {
 	}
 
 	bool load();
+
+    void get_peaks();
+    void pick_highs();
+    float peak_diff_sum();
+
 	void process();
 };
 
@@ -116,7 +123,7 @@ bool Song::load()
 
 		float *amp = ampbuf+period/2*pos;
 		for (int f=0; f<period/2; f++)
-			amp[f] = sqrt(fft[f+1].i*fft[f+1].i + fft[f+1].r*fft[f+1].r);
+            amp[f] = (fft[f+1].i*fft[f+1].i + fft[f+1].r*fft[f+1].r) / 10000;
 
 		amps[pos] = amp;
 	}	
@@ -124,41 +131,92 @@ bool Song::load()
 	return true;
 }
 
+void Song::get_peaks()
+{
+    for (int p=1; p<npoints; p++) {
+        float power = 0;
+        float *amp = amps[p];
+        for (int f=band0; f<band1; f++)
+            power += amp[f];
+        for (int f=0; f<h*1/10; f++) // ahem
+            power += amp[f];
+        points[p] = power;
+    }
+
+    for (int p=ws2/2; p<npoints-ws2/2; p++) {
+        float avg1 = 0;
+        float avg2 = 0;
+
+        for (int o=-ws1/2; o<ws1/2; o++)
+            avg1 += points[p+o]*hann_ws1[o+ws1/2];
+
+        for (int o=-ws2/2; o<ws2/2; o++)
+            avg2 += points[p+o]*hann_ws2[o+ws2/2];
+
+        float sc1 = 0.5f*(float)(ws1-1);
+        //float sc2 = 0.5f*(float)(ws2-1);
+
+        avgs1[p] = avg1/sc1;
+        //avgs2[p] = avg2/sc2;
+    }
+
+    npeaks = 0;
+
+    for (int p=ws2/2; p<npoints-ws2/2; p++) {
+        float dl = avgs1[p] - avgs1[p-1];
+        float dr = avgs1[p+1] - avgs1[p];
+        if (dl*dr < 0) peaks[npeaks++] = p;
+
+        deriv[p] = (dl>0) ? 1 : -1;
+    }
+}
+
+float Song::peak_diff_sum()
+{
+    float peakdiffsum = 0;
+
+    for (int p=1; p<npeaks; p++) {
+        float diff = fabs(avgs1[peaks[p]] - avgs1[peaks[p-1]]);
+        float avg = (avgs1[peaks[p]] + avgs1[peaks[p-1]]) / 2;
+        peakdiffsum += diff/avg;
+    }
+
+    return peakdiffsum / npeaks;
+}
+
+void Song::pick_highs()
+{
+    Score *highs = new Score[npeaks];
+    int nhighs = 0;
+    for (int i=1; i<npeaks; i++) {
+        if (deriv[peaks[i]] > 0) {
+            highs[nhighs].ofs = peaks[i];
+            highs[nhighs].score = (int)fabs(avgs1[peaks[i]] - avgs1[peaks[i-1]]);
+            nhighs++;
+        }
+    }
+
+    qsort(highs, nhighs, sizeof(Score), int_cmp);
+
+    npeaks = nhighs/2;
+    for (int i=0; i<npeaks; i++)
+        peaks[i] = highs[i].ofs;
+
+    delete highs;
+
+    qsort(peaks, npeaks, sizeof(int), int_cmp);
+
+    for (int i=0; i<npeaks/2; i++) {
+        int t = peaks[i];
+        peaks[i] = peaks[npeaks-1-i];
+        peaks[npeaks-1-i] = t;
+    }
+}
+
 void Song::process()
 {
-	for (int p=1; p<npoints; p++) {
-		float power = 0;
-		float *amp = amps[p];
-		for (int f=band0; f<band1; f++)
-			power += amp[f];
-		points[p] = power;
-	}
-
-	for (int p=ws2/2; p<npoints-ws2/2; p++) {		
-		float avg1 = 0;
-        //float avg2 = 0;
-
-		for (int o=-ws1/2; o<ws1/2; o++)
-			avg1 += points[p+o]*hann_ws1[o+ws1/2];
-		
-		/*for (int o=-ws2/2; o<ws2/2; o++)
-			avg2 += points[p+o]*hann_ws2[o+ws2/2];*/
-
-		float sc1 = 0.5f*(float)(ws1-1);
-        //float sc2 = 0.5f*(float)(ws2-1);
-		avgs1[p] = avg1/sc1;
-		//avgs2[p] = avg2/sc2;
-	}
-
-	npeaks = 0;
-
-	for (int p=ws2/2; p<npoints-ws2/2; p++) {		
-		float dl = avgs1[p] - avgs1[p-1];
-		float dr = avgs1[p] - avgs1[p+1];
-		if (dl*dr > 0) peaks[npeaks++] = p;
-
-		deriv[p] = (dl>0) ? 1 : -1;
-	}
+    get_peaks();
+    //pick_highs();
 }
 
 // TODO make threading dynamic

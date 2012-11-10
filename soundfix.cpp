@@ -24,16 +24,30 @@
 #define TEST_IDENT_SRV "localhost"
 
 /*
+- bpm ratio
+d offsets are wrong from 2nd on
+- sync issues
 - normalize volume
 - utf8 in midomi response
+- cache midomi replies
+- cache youtube search results
 - youtube-dl uses ipv6
-- offsets are wrong from 2nd on
+- if offset is negative it just uses 0 probably
 - append to log
-- it loads localhost for youtube play urls
+d it loads localhost for youtube play urls
 - update default button after each step
 - margin for youtube titles
 - make progressbars modal (on top)
 - handle less than 10 youtube results
+- if the test audio ends while you have the save dialog open, the "play" icon dissapears from the button
+d if flv is complete youtube-dl doesn't show dl location. find(vid.*) ?
+- need a test (bpm/strong beats) for when the song doesn't match
+- possibly fix tempo
+- "cannot synchronize audio tracks" appears; progress bar stuck at "loading ... video"
+- ramane synchronizing audio tracks... desi se termina si il poti canta/salva
+- cleanup when redoing steps
+- se blocheaza daca dai download youtube a doua oara dupa ce termina d/l (probabil fixed daca faci cleanup)
+- offsetstable->clearcontents leaves the grid for items there
 */
 
 SoundFix::SoundFix(QWidget *parent) :
@@ -83,6 +97,8 @@ SoundFix::SoundFix(QWidget *parent) :
 
     specpp_init();
 
+    ui->tempoCombo->addItem("0%");
+
     ui->offsetsTable->setHorizontalHeaderLabels(
             QStringList() << "Test" << "Time offset" << "Confidence");
 
@@ -103,19 +119,32 @@ SoundFix::SoundFix(QWidget *parent) :
     QTimer::singleShot(0, this, SLOT(appReady()));
 }
 
+QString unaccent(const QString s)
+{
+    QString s2 = s.normalized(QString::NormalizationForm_D);
+    QString out;
+    for (int i=0,j=s2.length(); i<j; i++)
+        // strip diacritic marks
+        if (s2.at(i).category()!=QChar::Mark_NonSpacing &&
+            s2.at(i).category()!=QChar::Mark_SpacingCombining)
+            out.append(s2.at(i));
+    return out;
+}
+
 // debug
 void SoundFix::appReady()
 {
     return;
 
-    recordingName = "data/tefalta.3gp";
+    recordingName = "C:\\Users\\bogdan\\Downloads\\Jose Luis _ Pamela Salsa dancing.mp4";
     ui->videoEdit->setText(recordingName);        
-    ui->songEdit->setText("Calambuco - Te Falta Ritmo");
+    ui->songEdit->setText("Domenic M - Señora");
 
     //startIdentification();
+    getVideoInfo();
 
     //startYoutubeDown("CU8V4BSuRKI");
-    //youtubeDownDestination = "CU8V4BSuRKI.flv";
+    youtubeDownDestination = "VLio_1undiA.flv";
     //runAudioSync();
 }
 
@@ -256,16 +285,16 @@ void SoundFix::continueIdentification()
     }
 }
 
-#define SAMPLE_MSEC (12*1000)
+#define SAMPLE_MSEC (14*1000)
 
-void SoundFix::extractAudio()
+bool SoundFix::getVideoInfo()
 {
     printf("getting video info\n");
 
     QProcess ffmpegInfo;
     ffmpegInfo.start("tools/ffmpeg.exe", QStringList() << "-i" << recordingName);
     if (!ffmpegInfo.waitForFinished())
-        { error("Video load error", "Cannot get video information."); return; }
+        { error("Video load error", "Cannot get video information."); return false; }
 
     QByteArray info = ffmpegInfo.readAllStandardError();
 
@@ -274,7 +303,7 @@ void SoundFix::extractAudio()
     if (re.indexIn(info) == -1) {
         printf("---\n%s---\n", info);
         error("Video load error", "Cannot get video duration.");
-        return;
+        return false;
     }
 
     int hours = re.cap(1).toInt();
@@ -285,6 +314,14 @@ void SoundFix::extractAudio()
     durationMsec = (hours*3600 + mins*60 + secs)*1000 + hsecs*10;
     printf("duration: %d\n", durationMsec);
 
+    return true;
+}
+
+void SoundFix::extractAudio()
+{
+    if (!getVideoInfo())
+        return;
+
     if (durationMsec < SAMPLE_MSEC) {
         error("Video is too short",
             QString("Video is too short (%1 seconds). At least %2 seconds are required.")
@@ -294,7 +331,7 @@ void SoundFix::extractAudio()
 
     int sampleOffset = 0;
     if (durationMsec > SAMPLE_MSEC)
-        sampleOffset = (durationMsec - SAMPLE_MSEC) / 2;
+        sampleOffset = (durationMsec - SAMPLE_MSEC) / 3;
 
     // ---
 
@@ -521,7 +558,9 @@ void SoundFix::sockReadyRead()
             return;
         }
 
-        int clenPos = sockBuf.indexOf("\r\nContent-Length: ", 0, Qt::CaseInsensitive);
+        headers = sockBuf.left(rnrn+2);
+
+        int clenPos = headers.indexOf("\r\nContent-Length: ", 0, Qt::CaseInsensitive);
         if (clenPos < 0 || clenPos > rnrn) {
             error("Song identification error", "Invalid response from identification service.");
             cleanupIdentification();
@@ -529,13 +568,13 @@ void SoundFix::sockReadyRead()
         }
 
         clenPos += strlen("\r\nContent-Length: ");
-        int rn = sockBuf.indexOf("\r\n", clenPos);
-        QString clenStr = sockBuf.mid(clenPos, rn-clenPos);
+        int rn = headers.indexOf("\r\n", clenPos);
+        QString clenStr = headers.mid(clenPos, rn-clenPos);
 
         contentLength = clenStr.toInt();
         //printf("content-length: %d\n", contentLength);
 
-        headers = sockBuf.left(rnrn+2);
+
         sockBuf = sockBuf.right(sockBuf.length() - (rnrn+4));
     }
 
@@ -544,7 +583,7 @@ void SoundFix::sockReadyRead()
         return;
 
     sockBuf.truncate(contentLength);
-    printf("---\n%s\n---\n", sockBuf.toAscii().data());
+    printf("---\n%s\n---\n", sockBuf.data());
 
     if (identSubstep == IDENTIFY_GET_SESSION)
         processSessionResponse();
@@ -635,8 +674,8 @@ void SoundFix::processSearchResponse()
         return;
     }
 
-    QString track  = sockBuf.mid(trackPos,  trackEnd-trackPos);
-    QString artist = sockBuf.mid(artistPos, artistEnd-artistPos);
+    QString track  = QString::fromUtf8(sockBuf.data() + trackPos,  trackEnd-trackPos);
+    QString artist = QString::fromUtf8(sockBuf.data() + artistPos, artistEnd-artistPos);
 
     ui->songEdit->setText(QString("%1 - %2").arg(artist, track));
 }
@@ -704,7 +743,7 @@ void SoundFix::on_searchBtn_clicked()
 {
     // TODO check that step 1 completed
 
-    QByteArray songName = ui->songEdit->text().toAscii();
+    QByteArray songName = unaccent(ui->songEdit->text()).toAscii();
     QString cleanSongName;
     QString songQuery;
 
@@ -831,7 +870,7 @@ void SoundFix::youtubeAddResult()
     QString videoId = getVideoId(youtubeLines[2]);
 
     QString link = videoId.isEmpty() ? youtubeLines[0] :
-             QString("<a href=\"http://localhost/watch?v=%1\">%2</a>")
+             QString("<a href=\"http://www.youtube.com/watch?v=%1\">%2</a>")
                     .arg(videoId).arg(Qt::escape(youtubeLines[0]));
 
     QLabel *href = new QLabel(link, this);
@@ -995,6 +1034,7 @@ void SoundFix::startYoutubeDown(const QString &videoId)
     // nondebug
     youtubeDownProc.start("tools/youtube-dl.exe", QStringList() <<
             QString("http://www.youtube.com/watch?v=%1").arg(videoId) <<
+            "--max-quality" << "18" <<
             "--cookies" << "cookies.txt");
 
     // debug
@@ -1013,6 +1053,8 @@ void SoundFix::cleanupYoutubeDown()
     youtubeDownProc.kill();
 
     ui->downloadProgress->setValue(0);
+
+    ui->offsetsTable->setRowCount(0);
 }
 
 void SoundFix::youtubeDownReadyRead()
@@ -1041,6 +1083,12 @@ void SoundFix::youtubeDownReadyRead()
         if (rxd.indexIn(line)>=0) {
             youtubeDownDestination = rxd.cap(1);
             printf("destination: %s\n", youtubeDownDestination.toAscii().data());
+        }
+
+        QRegExp rxd2("\\[download\\] +([^ ]+) +has already been downloaded");
+        if (rxd2.indexIn(line)>=0) {
+            youtubeDownDestination = rxd2.cap(1);
+            printf("destination-already: %s\n", youtubeDownDestination.toAscii().data());
         }
 
         // get progress
