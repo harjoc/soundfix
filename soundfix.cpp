@@ -25,13 +25,17 @@
 
 /*
 - bpm ratio
+- possibly fix tempo
 d offsets are wrong from 2nd on
 - sync issues
 - normalize volume
-- utf8 in midomi response
+d utf8 in midomi response
 - cache midomi replies
 - cache youtube search results
+- api pt specpp comun pt soundfix si specpp, sau lasa-l doar in soundfix
 - youtube-dl uses ipv6
+- progressing progress bars
+- timeout for midomi
 - if offset is negative it just uses 0 probably
 - append to log
 d it loads localhost for youtube play urls
@@ -42,7 +46,6 @@ d it loads localhost for youtube play urls
 - if the test audio ends while you have the save dialog open, the "play" icon dissapears from the button
 d if flv is complete youtube-dl doesn't show dl location. find(vid.*) ?
 - need a test (bpm/strong beats) for when the song doesn't match
-- possibly fix tempo
 - "cannot synchronize audio tracks" appears; progress bar stuck at "loading ... video"
 - ramane synchronizing audio tracks... desi se termina si il poti canta/salva
 - cleanup when redoing steps
@@ -131,9 +134,21 @@ QString unaccent(const QString s)
     return out;
 }
 
+int nop_progress(void *, const char *, int)
+{
+    return 0;
+}
+
 // debug
 void SoundFix::appReady()
 {
+    //return;
+
+    if (!specpp_compare("../specpp/data/dame.wav", "../specpp/data/dame2.wav", nop_progress, this,
+            //scores
+            3, MAX_SYNC_OFFSETS, 75, &retOffsets, offsets, confidences, NULL))
+        { error("Audio sync error", "Cannot synchronize audio tracks."); return; }
+
     return;
 
     recordingName = "C:\\Users\\bogdan\\Downloads\\Jose Luis _ Pamela Salsa dancing.mp4";
@@ -285,7 +300,7 @@ void SoundFix::continueIdentification()
     }
 }
 
-#define SAMPLE_MSEC (14*1000)
+#define SAMPLE_MSEC (18*1000)
 
 bool SoundFix::getVideoInfo()
 {
@@ -1193,7 +1208,7 @@ void SoundFix::runAudioSync()
     // nondebug
     if (!specpp_compare("data/youtube.wav", "data/sample.wav", progressCallback, this,
             //scores
-            3, MAX_SYNC_OFFSETS, 75, &retOffsets, offsets, confidences))
+            3, MAX_SYNC_OFFSETS, 75, &retOffsets, offsets, confidences, NULL))
         { error("Audio sync error", "Cannot synchronize audio tracks."); return; }
 
     // debug

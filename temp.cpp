@@ -58,3 +58,16 @@ public: static void msleep(unsigned long msecs) { QThread::msleep(msecs); }
 
 
 
+
+
+    for (int o = 0; o<npoints-range*2; o++) {
+			for (int f=0; f<period/2; f++) {
+				if (mags[f]) {
+					int x = amp1[o*period/2+f] * 100 / mags[f];
+					int y = amp2[o*period/2+f] * 100 / mags[f];
+					int z = amp3[o*period/2+f] * 100 / mags[f];
+					int c = x*y*z/50000;
+					score += c;
+				}
+			}
+		}

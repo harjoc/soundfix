@@ -11,8 +11,10 @@
 
 #define M_PI 3.14159265358979323846f
 
-const int period = 1024;
-const int step = 100;
+const int period = 512; // average down to this
+const int fftsize = 2048;
+const int step = 512; // how much to advance in 'substeps' substeps
+const int substeps = 5;
 
 kiss_fftr_cfg kcfg;
 float *hann_fft;
@@ -23,57 +25,56 @@ const int h = period/2;
 
 int maxthresh = 103;
 int minthresh = 91;
-int ws1 = 65;
+
+int ws1 = 20;
 int ws2 = ws1*35/10;
-int band0 = h*1/45;
-int band1 = h*45/45;
+int band0 = h*1/40;
+int band1 = h*38/40;
+
+const int bspec_maxrange = 700;
 
 SpecppCallback callback_fn = 0;
 void* callback_arg = 0;
 
 struct Score {
-	int score;
-	int ofs;
+    int score;
+    int ofs;
 };
 
 Score *scores=0;
 
 struct Song {
-	const char *fname;
-	short *isamples;
-	float *samples;
-	int nsamp;
+    const char *fname;
+    short *isamples;
+    int nsamp;
 
-	int npoints;
-	float *points;	
-	float *avgs1;
-	//float *avgs2;
-	int *deriv;
+    int npoints;
+    int *points;
+    int *avgs1;
+    int *deriv;
 
-	float **amps;
-	float *ampbuf;
+    int *ampbuf;
 
-	int *peaks;
-	int npeaks;
-	
-	void cleanup() {
-		delete isamples;
-		delete samples;
-		delete points;
-		delete avgs1;
-		//delete avgs2;
-		delete deriv;
-		delete ampbuf;
-		delete peaks;
-	}
+    int *mags;
+    int *bspec;
+    int bspec_range;
 
-	bool load();
+    void cleanup() {
+        delete isamples;
+        delete points;
+        delete avgs1;
+        delete deriv;
+        delete ampbuf;
+        delete mags;
+        delete bspec;
+    }
+
+    bool load();
 
     void get_peaks();
-    void pick_highs();
-    float peak_diff_sum();
-
-	void process();
+    void get_bspec();
+    bool bspec_confidence();
+    void process();
 };
 
 Song s1;
@@ -81,147 +82,198 @@ Song s2;
 
 int int_cmp(const void *a, const void *b)
 {
-	int x = *(int *)a;
-	int y = *(int *)b;
-	return y-x;
+    int x = *(int *)a;
+    int y = *(int *)b;
+    return y-x;
 }
 
 bool Song::load()
 {    
-	if (!read_wav(fname, &isamples, &nsamp))
-		return false;
+    if (!read_wav(fname, &isamples, &nsamp))
+        return false;
 
-	samples = new float[nsamp];
+    npoints = (nsamp-fftsize-1)/step;
+    points = new int[npoints];
+    avgs1 = new int[npoints];
 
-	float *ptr_f = samples + nsamp;
-	short *ptr_i = isamples + nsamp;
+    ampbuf = new int[period/2*npoints];
 
-	for (int pos=nsamp; pos-- > 0;)
-		*(ptr_f--) = *(ptr_i--);
+    deriv = new int[npoints];
 
-	npoints = (nsamp-period-1)/step;
-	points = new float[npoints];		
-	avgs1 = new float[npoints];
-	//avgs2 = new float[npoints];
+    mags = new int[period/2];
 
-	deriv = new int[npoints];
+    bspec = new int[bspec_maxrange];
 
-	amps = new float*[npoints];
-	ampbuf = new float[period/2*npoints];
+    memset(ampbuf, 0, period/2*sizeof(ampbuf[0]));
 
-	peaks = new int[npoints*3];
+    for (int pos=0; pos<npoints; pos++) {
+        for (int substep=0; substep<substeps; substep++) {
+            static kiss_fft_cpx fft[fftsize/2+1];
 
-	for (int pos=0; pos<npoints; pos++) {
-		static kiss_fft_cpx fft[period/2+1];
+            static float chunk[fftsize];
 
-		static float chunk[period];
-		memcpy(chunk, samples+pos*step, period*sizeof(float));
-		for (int p=0; p<period; p++)
-			chunk[p] *= hann_fft[p];
+            float *ptr_f = chunk;
+            short *ptr_i = isamples + pos*step + step*substep/substeps;
 
-		kiss_fftr(kcfg, chunk, fft);
+            for (int i=0; i<fftsize; i++)
+                *(ptr_f++) = *(ptr_i++) * hann_fft[i];
 
-		float *amp = ampbuf+period/2*pos;
-		for (int f=0; f<period/2; f++)
-            amp[f] = (fft[f+1].i*fft[f+1].i + fft[f+1].r*fft[f+1].r) / 10000;
+            kiss_fftr(kcfg, chunk, fft);
 
-		amps[pos] = amp;
-	}	
+            int *amp = ampbuf+pos*period/2;
+            for (int f=0; f<fftsize/2; f++)
+                amp[(period/2)*f/(fftsize/2)] += (int)((fft[f+1].i*fft[f+1].i + fft[f+1].r*fft[f+1].r)/100000000);
+        }
+    }
 
-	return true;
+    for (int f=0; f<period/2; f++) {
+        long long mag = 0;
+        for (int p=0; p<npoints; p++)
+            mag += ampbuf[p*period/2+f];
+        mags[f] = (int)(1 + mag/npoints);
+    }
+
+    return true;
 }
 
 void Song::get_peaks()
 {
-    for (int p=1; p<npoints; p++) {
-        float power = 0;
-        float *amp = amps[p];
+    for (int p=0; p<npoints; p++) {
+        int power = 0;
+        int *amp = ampbuf+p*period/2;
         for (int f=band0; f<band1; f++)
-            power += amp[f];
-        for (int f=0; f<h*1/10; f++) // ahem
             power += amp[f];
         points[p] = power;
     }
 
     for (int p=ws2/2; p<npoints-ws2/2; p++) {
         float avg1 = 0;
-        float avg2 = 0;
 
         for (int o=-ws1/2; o<ws1/2; o++)
             avg1 += points[p+o]*hann_ws1[o+ws1/2];
 
-        for (int o=-ws2/2; o<ws2/2; o++)
-            avg2 += points[p+o]*hann_ws2[o+ws2/2];
-
         float sc1 = 0.5f*(float)(ws1-1);
-        //float sc2 = 0.5f*(float)(ws2-1);
 
-        avgs1[p] = avg1/sc1;
-        //avgs2[p] = avg2/sc2;
+        avgs1[p] = (int)(avg1/sc1);
     }
 
-    npeaks = 0;
-
-    for (int p=ws2/2; p<npoints-ws2/2; p++) {
-        float dl = avgs1[p] - avgs1[p-1];
-        float dr = avgs1[p+1] - avgs1[p];
-        if (dl*dr < 0) peaks[npeaks++] = p;
-
-        deriv[p] = (dl>0) ? 1 : -1;
-    }
+    for (int p=ws2/2; p<npoints-ws2/2; p++)
+        deriv[p] = (avgs1[p] > avgs1[p-1]) ? 1 : -1;
 }
 
-float Song::peak_diff_sum()
+void Song::get_bspec()
 {
-    float peakdiffsum = 0;
+#if 1
+    int range = bspec_range = min(bspec_maxrange, npoints/3);
 
-    for (int p=1; p<npeaks; p++) {
-        float diff = fabs(avgs1[peaks[p]] - avgs1[peaks[p-1]]);
-        float avg = (avgs1[peaks[p]] + avgs1[peaks[p-1]]) / 2;
-        peakdiffsum += diff/avg;
+    for (int ofs=0; ofs < range; ofs++)
+    {
+        int *amp1 = ampbuf;
+        int *amp2 = ampbuf+period/2*(ofs);
+        int *amp3 = ampbuf+period/2*(ofs*2);
+
+        long long score=0;
+
+        // aici nu lua mai mult de 90sec
+        for (int o = 0; o<npoints-range*2; o++) {
+            for (int f=0; f<period/2; f++) {
+                int x = amp1[o*period/2+f] * 100 / mags[f];
+                int y = amp2[o*period/2+f] * 100 / mags[f];
+                int z = amp3[o*period/2+f] * 100 / mags[f];
+                int c = x*y*z/50000;
+                score += c;
+            }
+        }
+
+        bspec[ofs] = (int)(score / (npoints-range));
+        printf("%d\t", bspec[ofs]);
     }
-
-    return peakdiffsum / npeaks;
+    printf("\n\n");
+#endif
 }
 
-void Song::pick_highs()
+bool Song::bspec_confidence()
 {
-    Score *highs = new Score[npeaks];
-    int nhighs = 0;
-    for (int i=1; i<npeaks; i++) {
-        if (deriv[peaks[i]] > 0) {
-            highs[nhighs].ofs = peaks[i];
-            highs[nhighs].score = (int)fabs(avgs1[peaks[i]] - avgs1[peaks[i-1]]);
-            nhighs++;
+#if 1
+    int lastmax = 0;
+    int lastmin = 0;
+    double dists[bspec_maxrange];
+    double growths[bspec_maxrange];
+    int dists_len = 0;
+
+    for (int i=50; i<bspec_range-4; i++) {
+        int c = i+2;
+
+        bool ismin=true;
+        bool ismax=true;
+        for (int j=i; j<i+5; j++) {
+            ismin &= (bspec[c] <= bspec[j]);
+            ismax &= (bspec[c] >= bspec[j]);
+        }
+
+        if (ismin) {
+            int dmin = c-lastmin;
+            if (dmin > 5)
+                lastmin = c;
+        }
+
+        if (ismax) {
+            int dmax = c-lastmax;
+            if (dmax > 5) {
+                lastmax = c;
+                dists[dists_len] = dmax;
+                double g = bspec[lastmax]-bspec[lastmin];
+                g /= 1+bspec[lastmin];
+                if (g<0) g=0;
+                growths[dists_len] = g*g;
+                dists_len++;
+            }
         }
     }
 
-    qsort(highs, nhighs, sizeof(Score), int_cmp);
+    memmove(dists, dists+1, (dists_len-1)*sizeof(dists[0]));
+    memmove(growths, growths+1, (dists_len-1)*sizeof(dists[0]));
+    dists_len--;
 
-    npeaks = nhighs/2;
-    for (int i=0; i<npeaks; i++)
-        peaks[i] = highs[i].ofs;
+    if (dists_len==0) return false;
 
-    delete highs;
+    double avg = 0;
+    for (int i=0; i<dists_len; i++)
+        avg += dists[i];
+    avg /= dists_len;
 
-    qsort(peaks, npeaks, sizeof(int), int_cmp);
+    double avg2 = 0;
+    int avg2_len = 0;
+    for (int i=0; i<dists_len; i++)
+        if (dists[i]/avg >= 0.7 && dists[i]/avg < 1.3)
+            { avg2 += dists[i]; avg2_len++; }
+    avg2 /= avg2_len;
 
-    for (int i=0; i<npeaks/2; i++) {
-        int t = peaks[i];
-        peaks[i] = peaks[npeaks-1-i];
-        peaks[npeaks-1-i] = t;
-    }
+    double var2 = 0;
+    for (int i=0; i<dists_len; i++)
+        if (dists[i]/avg >= 0.7 && dists[i]/avg < 1.3)
+            var2 += (dists[i]-avg2)*(dists[i]-avg2);
+    var2 /= avg2_len;
+
+    double gravg = 0;
+    for (int i=0; i<dists_len; i++)
+        gravg += growths[i];
+    gravg /= dists_len;
+
+    printf("confidence: %.2f\n", var2/gravg);
+#endif
+    return true;
 }
 
 void Song::process()
 {
     get_peaks();
-    //pick_highs();
+    //get_bspec();
 }
 
 // TODO make threading dynamic
 
-#define THREAD_NUM 2
+#define THREAD_NUM 4
 
 #if THREAD_NUM>1
 HANDLE thread_handles[THREAD_NUM];
@@ -230,136 +282,113 @@ HANDLE thread_ev_done[THREAD_NUM];
 #endif
 
 DWORD WINAPI match_func(VOID *param)
-{	
-	int tid = (int)param;
+{    
+    int tid = (int)param;
 
-	for (;;) {
-		#if THREAD_NUM>1
-		if (WaitForSingleObject(thread_ev_data[tid], INFINITE) != WAIT_OBJECT_0)
-			break;
-		#endif
+    for (;;) {
+        #if THREAD_NUM>1
+        if (WaitForSingleObject(thread_ev_data[tid], INFINITE) != WAIT_OBJECT_0)
+            break;
+        #endif
 
-		int nscores = s2.npoints-1 + s1.npoints-1;
-		int start = nscores*tid/THREAD_NUM;
-		int end   = nscores*(tid+1)/THREAD_NUM;
-		//int start=s2.npoints-1, end=start+1;
-		//int start=s2.npoints-1+-722, end=start+1;
+        int nscores = s2.npoints-1 + s1.npoints-1;
+        int start = nscores*tid/THREAD_NUM;
+        int end   = nscores*(tid+1)/THREAD_NUM;
 
-		int a1 = ws2/2;
-		int b1 = s1.npoints-ws2/2;
+        int a1 = ws2/2;
+        int b1 = s1.npoints-ws2/2;
 
-		for (int ofsnum=start; ofsnum < end; ofsnum++) {	
-			int ofs = ofsnum - (s2.npoints-1);
-					
-			int a2 = ofs+ws2/2;
-			int b2 = ofs+s2.npoints-ws2/2;
+        for (int ofsnum=start; ofsnum < end; ofsnum++) {    
+            int ofs = ofsnum - (s2.npoints-1);
+                    
+            int a2 = ofs+ws2/2;
+            int b2 = ofs+s2.npoints-ws2/2;
 
-			int a = max(a1,a2);
-			int b = min(b1,b2);
+            int a = max(a1,a2);
+            int b = min(b1,b2);
 
-			int score = 0;
-			
-			/*for (int p1=0; p1<s1.npeaks-1; p1++) {
-				int pp1a = s1.peaks[p1];
-				int pp1b = s1.peaks[p1+1];
-				if (pp1a < a || pp1a > b ||
-					pp1b < a || pp1b > b)
-					continue;
-				
-				int m = (pp1a+pp1b)/2;
+            int score = 0;
+                
+            for (int p=a; p<b; p++) {
+                int c = s1.deriv[p]*s2.deriv[-ofs+p];
+                assert(c == 1 || c == -1);
+                score += c;
+            }
 
-				float d1 = (s1.avgs1[m] - s1.avgs1[m-1])/10000;
-				float d2 = (s2.avgs1[-ofs+m] - s2.avgs1[-ofs+m-1])/10000;
+            scores[ofsnum].ofs = ofs;
+            scores[ofsnum].score = score;
+        }
+    
+        #if THREAD_NUM>1
+        SetEvent(thread_ev_done[tid]);
+        #else
+        break;
+        #endif
+    }
 
-				float c = d1*d2;
-				score += c;
-			}*/
-			
-			for (int p=a; p<b; p++) {
-				/*float d1 = s1.avgs1[p] - s1.avgs1[p-1];
-				float d2 = s2.avgs1[-ofs+p] - s2.avgs1[-ofs+p-1];
-				float c = d1*d2/100000000;
-				score += c;*/
-
-				int c = s1.deriv[p]*s2.deriv[-ofs+p];
-				assert(c == 1 || c == -1);
-				score += c;
-			}
-
-			scores[ofsnum].ofs = ofs;
-			scores[ofsnum].score = (int)score;
-		}
-	
-		#if THREAD_NUM>1
-		SetEvent(thread_ev_done[tid]);
-		#else
-		break;
-		#endif
-	}
-
-	return 0;
+    return 0;
 }
 
 void match()
 {
-	#if THREAD_NUM>1
-	for (int i=0; i<THREAD_NUM; i++)
-		SetEvent(thread_ev_data[i]);
-	for (int i=0; i<THREAD_NUM; i++)
-		WaitForSingleObject(thread_ev_done[i], INFINITE);
-	#else
-	match_func(0);
-	#endif
+    #if THREAD_NUM>1
+    for (int i=0; i<THREAD_NUM; i++)
+        SetEvent(thread_ev_data[i]);
+    for (int i=0; i<THREAD_NUM; i++)
+        WaitForSingleObject(thread_ev_done[i], INFINITE);
+    #else
+    match_func(0);
+    #endif
 
-	int nscores = s2.npoints-1 + s1.npoints-1;
-	qsort(scores, nscores, sizeof(Score), int_cmp);
+    int nscores = s2.npoints-1 + s1.npoints-1;
+    qsort(scores, nscores, sizeof(Score), int_cmp);
 
     int s=1;
-	while (abs(scores[0].ofs - scores[s].ofs) < 20)
-		s++;
+    while (abs(scores[0].ofs - scores[s].ofs) < 20)
+        s++;
 
-	int headroom = 100 * (scores[0].score - scores[s].score) / scores[0].score;
-	int offset = abs(scores[0].ofs - scores[s].ofs);
+    int headroom = 100 * (scores[0].score - scores[s].score) / scores[0].score;
+    int offset = abs(scores[0].ofs - scores[s].ofs);
 
-	printf("%s\theadroom=%d\t offset=%d\n", s1.fname, headroom, offset);
+    printf("%s\theadroom=%d\t offset=%d\n", s1.fname, headroom, offset);
 }
 
 void print_scores()
 {
-	for (int s=0; s<20; s++) {
-		int c = (s < 10) ? ('0'+s) : ('a'+s-10);
-		printf("%c: %d\t%d\t%d%%\n", c, scores[s].ofs, scores[s].score, 
-				scores[s].score*100/scores[0].score);
-	}
-	printf("\n");
+    for (int s=0; s<20; s++) {
+        int c = (s < 10) ? ('0'+s) : ('a'+s-10);
+        printf("%c: %d\t%d\t%d%%\n", c, scores[s].ofs, scores[s].score, 
+                scores[s].score*100/scores[0].score);
+    }
+    printf("\n");
 }
 
 void init_match_workers()
 {
-	#if THREAD_NUM>1
-	for (int i=0; i<THREAD_NUM; i++) {
-		thread_ev_data[i] = CreateEvent(0, FALSE, FALSE, NULL);
-		thread_ev_done[i] = CreateEvent(0, FALSE, FALSE, NULL);
+    #if THREAD_NUM>1
+    for (int i=0; i<THREAD_NUM; i++) {
+        thread_ev_data[i] = CreateEvent(0, FALSE, FALSE, NULL);
+        thread_ev_done[i] = CreateEvent(0, FALSE, FALSE, NULL);
 
-		DWORD threadid;
-		thread_handles[i] = CreateThread(0, 0, match_func, (void *)i, 0, &threadid);
-		if (thread_handles[i] == NULL)
-			abort();
-	}
-	#endif
+        DWORD threadid;
+        thread_handles[i] = CreateThread(0, 0, match_func, (void *)i, 0, &threadid);
+        if (thread_handles[i] == NULL)
+            abort();
+    }
+    #endif
 }
 
 void gen_ws_hannings()
 {
-	delete hann_ws1;
-	hann_ws1 = new float[ws1];
-	for (int n=0; n<ws1; n++)
-		hann_ws1[n] = 0.5f * (1.0f - cos(2.0f * M_PI * n / (ws1-1)));
+    delete hann_ws1;
+    hann_ws1 = new float[ws1];
+    for (int n=0; n<ws1; n++)
+        hann_ws1[n] = 0.5f * (1.0f - cos(2.0f * M_PI * n / (ws1-1)));
 
-	delete hann_ws2;
-	hann_ws2 = new float[ws2];
-	for (int n=0; n<ws2; n++)
-		hann_ws2[n] = 0.5f * (1.0f - cos(2.0f * M_PI * n / (ws2-1)));
+    delete hann_ws2;
+    hann_ws2 = new float[ws2];
+    for (int n=0; n<ws2; n++)
+        hann_ws2[n] = 0.5f * (1.0f - cos(2.0f * M_PI * n / (ws2-1)));
 
 }
 
@@ -428,53 +457,54 @@ void clusterScores(int minOffsets, int maxOffsets, int minConfidence, int *retOf
 
 // five steps
 bool specpp_compare(const char *fname1, const char *fname2, SpecppCallback cb, void *cb_arg,
-        int minOffsets, int maxOffsets, int minConfidence, int *retOffsets, int *offsets, float *confidences)
+        int minOffsets, int maxOffsets, int minConfidence, int *retOffsets, int *offsets, float *confidences,
+        float *)
 {
     *retOffsets = 0;
     callback_fn = cb;
     callback_arg = cb_arg;
 
-	s1.cleanup();
-	s2.cleanup();
+    s1.cleanup();
+    s2.cleanup();
     s1.fname = fname1;
     s2.fname = fname2;
 
     if (callback_fn(callback_arg, "Loading YouTube audio track...", 0))
         return true;
 
-	if (!s1.load()) return false;
+    if (!s1.load()) return false;
 
     if (callback_fn(callback_arg, "Loading recorded audio track...", 300))
         return true;
 
-	if (!s2.load()) return false;
+    if (!s2.load()) return false;
 
-	delete scores;
-	scores = new Score[s2.npoints-1 + s1.npoints-1];
+    delete scores;
+    scores = new Score[s2.npoints-1 + s1.npoints-1];
 
     if (callback_fn(callback_arg, "Processing YouTube audio track...", 400))
         return true;
 
-	s1.process();
+    s1.process();
 
     if (callback_fn(callback_arg, "Processing recorded audio track...", 500))
         return true;
 
-	s2.process();
+    s2.process();
 
     if (callback_fn(callback_arg, "Synchronizing audio tracks...", 580))
         return true;
 
-	match();
+    match();
 
     if (callback_fn(callback_arg, "Done!", 1000))
         return true;
 
-	print_scores();
+    print_scores();
 
     clusterScores(minOffsets, maxOffsets, minConfidence, retOffsets, offsets, confidences);
-	
-	return true;
+    
+    return true;
 }
 
 bool specpp_mix(int ofs, const char *fname)
