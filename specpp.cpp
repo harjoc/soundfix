@@ -17,9 +17,9 @@ const int step = 512; // how much to advance in 'substeps' substeps
 const int substeps = 5;
 
 kiss_fftr_cfg kcfg;
-float *hann_fft;
-float *hann_ws1;
-float *hann_ws2;
+float *hann_fft=NULL;
+float *hann_ws1=NULL;
+float *hann_ws2=NULL;
 
 const int h = period/2;
 
@@ -104,8 +104,6 @@ bool Song::load()
 
     bspec = new int[bspec_maxrange];
 
-    memset(ampbuf, 0, period/2*sizeof(ampbuf[0]));
-
     for (int pos=0; pos<npoints; pos++) {
         for (int substep=0; substep<substeps; substep++) {
             static kiss_fft_cpx fft[fftsize/2+1];
@@ -130,6 +128,7 @@ bool Song::load()
         long long mag = 0;
         for (int p=0; p<npoints; p++)
             mag += ampbuf[p*period/2+f];
+
         mags[f] = (int)(1 + mag/npoints);
     }
 
@@ -394,13 +393,13 @@ void gen_ws_hannings()
 
 void specpp_init()
 {
-    hann_fft = new float[period];
-    for (int n=0; n<period; n++)
-        hann_fft[n] = 0.5f * (1.0f - cos(2.0f * M_PI * n / (period-1)));
+    hann_fft = new float[fftsize];
+    for (int n=0; n<fftsize; n++)
+        hann_fft[n] = 0.5f * (1.0f - cos(2.0f * M_PI * n / (fftsize-1)));
 
     gen_ws_hannings();
 
-    kcfg = kiss_fftr_alloc(period, 0, 0, 0);
+    kcfg = kiss_fftr_alloc(fftsize, 0, 0, 0);
 
     #if THREAD_NUM>1
     init_match_workers();

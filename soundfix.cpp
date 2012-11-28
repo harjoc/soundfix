@@ -26,15 +26,18 @@
 /*
 - bpm ratio
 - possibly fix tempo
+- cache midomi replies, ca sa poti testa totu rapid
+- cache youtube search results
 d offsets are wrong from 2nd on
 - sync issues
 - normalize volume
 d utf8 in midomi response
-- cache midomi replies
-- cache youtube search results
+- nu merge sa downloadezi bachata e cocolata daca il cauti manual (versiunea daniela blabla)
+- schimba labelu cu download progress imediat, sa vada useru ca ai luat click-ul
 - api pt specpp comun pt soundfix si specpp, sau lasa-l doar in soundfix
 - youtube-dl uses ipv6
 - progressing progress bars
+- mags ala vad ca nu conteaza la sincronizare (match)
 - timeout for midomi
 - if offset is negative it just uses 0 probably
 - append to log
@@ -142,7 +145,7 @@ int nop_progress(void *, const char *, int)
 // debug
 void SoundFix::appReady()
 {
-    //return;
+    return;
 
     if (!specpp_compare("../specpp/data/dame.wav", "../specpp/data/dame2.wav", nop_progress, this,
             //scores
