@@ -163,7 +163,10 @@ void Song::get_peaks()
 void Song::get_bspec()
 {
 #if 1
-    int range = bspec_range = min(bspec_maxrange, npoints/3);
+    const int range = bspec_range = min(bspec_maxrange, npoints/3);
+
+    // don't correlate over more than 90 secs
+    const int correl_range = min(npoints-range*2, 90*44100/step);
 
     for (int ofs=0; ofs < range; ofs++)
     {
@@ -174,7 +177,7 @@ void Song::get_bspec()
         long long score=0;
 
         // aici nu lua mai mult de 90sec
-        for (int o = 0; o<npoints-range*2; o++) {
+        for (int o = 0; o<correl_range; o++) {
             for (int f=0; f<period/2; f++) {
                 int x = amp1[o*period/2+f] * 100 / mags[f];
                 int y = amp2[o*period/2+f] * 100 / mags[f];
