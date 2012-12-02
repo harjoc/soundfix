@@ -30,6 +30,7 @@ d cache midomi replies, ca sa poti testa totu rapid
 d cache youtube search results
 d offsets are wrong from 2nd on
 d sync issues
+d nu iti da eroare daca esueaza ffmpeg-encode-u (si probabil info, etc)
 - normalize volume
 d utf8 in midomi response
 - tooltips for youtube result urls
@@ -281,7 +282,8 @@ void SoundFix::continueIdentification()
             identProgressBar.setValue(25);
             QApplication::processEvents();
 
-            extractAudio();
+            if (!extractAudio())
+                cleanupIdentification();
             return;
 
         case IDENTIFY_GET_SESSION:
@@ -338,16 +340,16 @@ bool SoundFix::getVideoInfo()
     return true;
 }
 
-void SoundFix::extractAudio()
+bool SoundFix::extractAudio()
 {
     if (!getVideoInfo())
-        return;
+        return false;
 
     if (durationMsec < SAMPLE_MSEC) {
         error("Video is too short",
             QString("Video is too short (%1 seconds). At least %2 seconds are required.")
                      .arg(durationMsec/1000).arg(SAMPLE_MSEC/1000));
-        return;
+        return false;
     }
 
     int sampleOffset = 0;
@@ -371,8 +373,8 @@ void SoundFix::extractAudio()
             "-ac" << "1" <<
             "-ar" << "44100" <<
             QString("data/%1 - sample.wav").arg(recordingName));
-    if (!ffmpegWav.waitForFinished())
-        { error("Audio load error", "Cannot extract audio sample."); return; }
+    if (!ffmpegWav.waitForFinished() || ffmpegWav.exitCode() != 0)
+        { error("Audio load error", "Cannot extract audio sample."); return false; }
 
     QProcess ffmpegOgg;
     ffmpegOgg.start("tools/ffmpeg.exe", QStringList() <<
@@ -385,8 +387,8 @@ void SoundFix::extractAudio()
             "-cbr_quality" << "10" <<
             "-compression_level" << "10" <<
             QString("data/%1 - sample.ogg").arg(recordingName));
-    if (!ffmpegOgg.waitForFinished())
-        { error("Audio conversion error", "Cannot compress audio sample."); return; }
+    if (!ffmpegOgg.waitForFinished() || ffmpegOgg.exitCode() != 0)
+        { error("Audio conversion error", "Cannot compress audio sample."); return false; }
 
     // ---
 
@@ -396,9 +398,9 @@ void SoundFix::extractAudio()
     QFile spx(QString("data/%1 - sample.spx").arg(recordingName));
 
     if (!ogg.open(QIODevice::ReadOnly))
-        { error("Audio sample conversion error", "Cannot open sample."); return; }
+        { error("Audio sample conversion error", "Cannot open sample."); return false; }
     if (!spx.open(QIODevice::WriteOnly))
-        { error("Audio sample conversion error", "Cannot create sample."); return; }
+        { error("Audio sample conversion error", "Cannot create sample."); return false; }
 
     bool headers=true;
     bool first=true;
@@ -412,26 +414,26 @@ void SoundFix::extractAudio()
         if (ret==0) break;
 
         if (ret != sizeof(ogghdr) || memcmp(ogghdr, "OggS", 4))
-            { error("Audio sample conversion error", "Cannot read header."); return; }
+            { error("Audio sample conversion error", "Cannot read header."); return false; }
 
         unsigned char nsegs = ogghdr[26];
         if (nsegs==0)
-            { error("Audio sample conversion error", "Cannot read audio segments."); return; }
+            { error("Audio sample conversion error", "Cannot read audio segments."); return false; }
 
         ret = ogg.read((char*)segtab, nsegs);
         if (ret != nsegs)
-            { error("Audio sample conversion error", "Cannot read audio segment table."); return; }
+            { error("Audio sample conversion error", "Cannot read audio segment table."); return false; }
 
         if (nsegs > 1)
             headers = false;
 
         if (headers) {
             if (nsegs != 1)
-                { error("Audio sample conversion error", "Unsupported audio format."); return; }
+                { error("Audio sample conversion error", "Unsupported audio format."); return false; }
 
             ret = ogg.read((char*)seg, segtab[0]);
             if (ret != segtab[0])
-                { error("Audio sample conversion error", "Error reading audio."); return; }
+                { error("Audio sample conversion error", "Error reading audio."); return false; }
 
             if (first) {
                 unsigned char speex_header_bin[] =
@@ -441,17 +443,17 @@ void SoundFix::extractAudio()
                     "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00";
 
                  if (segtab[0] != 80)
-                    { error("Audio sample conversion error", "Unsupported audio format."); return; }
+                    { error("Audio sample conversion error", "Unsupported audio format."); return false; }
                  spx.write((char*)speex_header_bin, 80);
             }
         } else {
             for (int s=0; s<nsegs; s++) {
                 if (segtab[s] > 62 || (s<nsegs-1 && segtab[s] != 62))
-                    { error("Audio sample conversion error", "Unsupported audio frame."); return; }
+                    { error("Audio sample conversion error", "Unsupported audio frame."); return false; }
 
                 ret = ogg.read((char*)seg, segtab[s]);
                 if (ret != segtab[s])
-                    { error("Audio sample conversion error", "Cannot read audio frame."); return; }
+                    { error("Audio sample conversion error", "Cannot read audio frame."); return false; }
 
                 unsigned char lenbuf[2] = {0, segtab[s]};
                 spx.write((char*)lenbuf, 2);
@@ -471,6 +473,8 @@ void SoundFix::extractAudio()
         identSubstep++;
         continueIdentification();
     }
+
+    return true;
 }
 
 bool SoundFix::loadCachedSongName()
@@ -1101,14 +1105,35 @@ void SoundFix::on_downloadBtn_clicked()
     if (videoId.isEmpty())
         return;
 
-    // nondebug
-    startYoutubeDown(videoId);
+    cleanupYoutubeDown();
+
+    if (findCachedYoutubeVideo(videoId))
+        runAudioSync();
+    else
+        startYoutubeDown(videoId);
+}
+
+bool SoundFix::findCachedYoutubeVideo(const QString &videoId)
+{
+    youtubeDownDestination.clear();
+
+    QString fnameMp4 = videoId + ".mp4";
+    QString fnameFlv = videoId + ".flv";
+
+    if (QFile(QString("data/")+ fnameMp4).exists())
+        youtubeDownDestination = fnameMp4;
+    else if (QFile(QString("data/")+ fnameFlv).exists())
+        youtubeDownDestination = fnameFlv;
+    else return false;
+
+    ui->downloadProgress->setValue(1000);
+    ui->progressLabel->setText("Already downloaded.");
+
+    return true;
 }
 
 void SoundFix::startYoutubeDown(const QString &videoId)
 {
-    cleanupYoutubeDown();
-
     printf("\nyoutube down\n");
 
     connect(&youtubeDownProc, SIGNAL(readyReadStandardOutput()), this, SLOT(youtubeDownReadyRead()));
@@ -1234,6 +1259,9 @@ void SoundFix::youtubeDownFinished(int exitCode)
 void SoundFix::cleanupAudioSync()
 {
     syncProgressBar.setValue(1400);
+
+    ui->tempoCombo->clear();
+    ui->tempoCombo->addItem("100%");
 }
 
 int progressCallback(void *arg, const char *step, int progress)
@@ -1245,7 +1273,7 @@ int progressCallback(void *arg, const char *step, int progress)
 int SoundFix::updateAudioSyncProgress(const char *step, int progress)
 {
     if (step) syncProgressBar.setLabelText(step);
-    syncProgressBar.setValue(400+progress);
+    syncProgressBar.setValue(300+progress);
 
     QApplication::processEvents();
 
@@ -1264,7 +1292,12 @@ void SoundFix::runAudioSync()
     syncProgressBar.setLabelText("Extracting audio...");
     syncProgressBar.setValue(0);
 
-    QFile("data/youtube.wav").remove();
+    QString recordingSampleFname = QString("data/%1 - sample.wav").arg(recordingName);
+
+    QString youtubeSampleFname = QString("data/%1 - sample.wav").arg(youtubeDownDestination);
+    QString youtubeTempoFname = QString("data/%1 - tempo.wav").arg(youtubeDownDestination);
+    QFile(youtubeSampleFname).remove();
+    QFile(youtubeTempoFname).remove();
 
     QProcess ffmpegYtWav;
     ffmpegYtWav.start("tools/ffmpeg.exe", QStringList() << "-i" <<
@@ -1272,8 +1305,8 @@ void SoundFix::runAudioSync()
             "-f" << "wav" <<
             "-ac" << "1" <<
             "-ar" << "44100" <<
-            "data/youtube.wav");
-    if (!ffmpegYtWav.waitForFinished()) {
+            youtubeSampleFname);
+    if (!ffmpegYtWav.waitForFinished() || ffmpegYtWav.exitCode() != 0) {
         error("Audio load error", "Cannot extract audio from youtube.");
         cleanupAudioSync();
         return;
@@ -1282,14 +1315,47 @@ void SoundFix::runAudioSync()
     // specpp_compare calls our callback with labels and
     // progress values [0...1000] which we need to offset by whatever (see setMaximum)
 
-    QString wavName = QString("data/%1 - sample.wav").arg(recordingName);
-
     // nondebug
-    if (!specpp_compare("data/youtube.wav", wavName.toAscii().data(),
+    if (!specpp_compare(youtubeSampleFname.toAscii().data(), recordingSampleFname.toAscii().data(),
             progressCallback, this,
             //scores
-            3, MAX_SYNC_OFFSETS, 75, &retOffsets, offsets, confidences, NULL))
-        { error("Audio sync error", "Cannot synchronize audio tracks."); return; }
+            3, MAX_SYNC_OFFSETS, 75, &retOffsets, offsets, confidences, &tempoRatio))
+    {
+        error("Audio sync error", "Cannot synchronize audio tracks.");
+        cleanupAudioSync();
+        return;
+    }
+
+    // tempo-scale the youtube wav for mixing
+
+    syncProgressBar.setLabelText("Adjusting YouTube tempo to recording tempo...");
+    syncProgressBar.setValue(1350);
+    QApplication::processEvents();
+
+    QProcess ffmpegScaleYt;
+    ffmpegScaleYt.start("tools/ffmpeg.exe", QStringList() <<
+            "-i" << youtubeSampleFname <<
+            "-af" << QString().sprintf("atempo=%.3f", 1.0/tempoRatio) <<
+            youtubeTempoFname);
+    if (!ffmpegScaleYt.waitForFinished() || ffmpegScaleYt.exitCode() != 0) {
+        error("Audio load error", "Cannot adjust tempo of YouTube audio.");
+        cleanupAudioSync();
+        return;
+    }
+
+    syncProgressBar.setValue(1400);
+
+    if (tempoRatio == 1.0) {
+        ui->tempoInfoLabel->setText("(not required)");
+    } else {
+        // there is already '100%' in there
+        ui->tempoCombo->addItem(QString().sprintf("%.1f%%", tempoRatio*100.0));
+        ui->tempoInfoLabel->setText("");
+    }
+
+    // get a 'confident' bool from specpp_compare and only select the bpm if it's true
+
+    ui->tempoCombo->setCurrentIndex(ui->tempoCombo->count()-1);
 
     // debug
     /*syncProgressBar.setValue(1400);
@@ -1392,8 +1458,9 @@ void SoundFix::playOffset()
 
     ui->offsetsTable->selectRow(row);
 
-    // nondebug
-    if (!specpp_mix(offsets[row], "data/mix.wav"))
+    QString youtubeTempoFname = QString("data/%1 - tempo.wav").arg(youtubeDownDestination);
+
+    if (!specpp_mix((int)(offsets[row] * tempoRatio), youtubeTempoFname.toAscii().data(), "data/mix.wav"))
         { error("Error mixing audio tracks", "Could not create audio mix."); return; }
 
     playSyncAudio(row);
@@ -1419,20 +1486,26 @@ void SoundFix::on_saveBtn_clicked()
 
     QProcess ffmpegMerge;
 
+    QString youtubeSampleFname = QString("data/%1 - sample.wav").arg(youtubeDownDestination);
+
     QStringList args;
     args <<
         "-ss" << ss <<
-        "-t" << t <<
-        "-i" << "data/youtube.wav" <<
-        "-ss" << "0" <<
-        "-t" << t <<
+        "-i" << youtubeSampleFname <<
+        //"-ss" << "0" << // winff: needed; zeranoe-ffmpeg - not
+        //"-t" << t << // ditto
         "-i" << recordingPath <<
         "-map" << "0:0" <<
         "-map" << "1:video" <<
         "-f" << "mp4" <<
         "-vcodec" << "copy" <<
-        "-acodec" << "libfaac" <<
-        outputName;
+        "-acodec" << "libvo_aacenc" << // winff: "libfaac"
+        "-t" << t; // winff: this was after -ss
+
+    if (tempoRatio != 1.0)
+        args << "-af" << QString().sprintf("atempo=%.3f", 1.0/tempoRatio);
+
+    args << outputName;
 
     printf("running ffmpeg %s\n", args.join(" ").toAscii().data());
 
@@ -1447,8 +1520,8 @@ void SoundFix::on_saveBtn_clicked()
     QApplication::processEvents();
 
     ffmpegMerge.start("tools/ffmpeg.exe", args);
-    if (!ffmpegMerge.waitForFinished())
-        { error("Video encoder error", "Cannot encode YouTube audio into original video."); return; }
+    if (!ffmpegMerge.waitForFinished() || ffmpegMerge.exitCode() != 0)
+        { error("Video encoder error", "Error while re-encoding video with audio from YouTube."); return; }
 
     encodeProgress.setValue(100);
     encodeProgress.hide();

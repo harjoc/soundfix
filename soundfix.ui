@@ -260,17 +260,23 @@
       <item>
        <widget class="QComboBox" name="tempoCombo">
         <property name="sizePolicy">
-         <sizepolicy hsizetype="Maximum" vsizetype="Fixed">
+         <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
           <horstretch>0</horstretch>
           <verstretch>0</verstretch>
          </sizepolicy>
+        </property>
+        <property name="minimumSize">
+         <size>
+          <width>70</width>
+          <height>0</height>
+         </size>
         </property>
        </widget>
       </item>
       <item>
        <widget class="QLabel" name="tempoInfoLabel">
         <property name="text">
-         <string>(not required)</string>
+         <string/>
         </property>
        </widget>
       </item>
@@ -359,7 +365,6 @@
    <zorder>offsetsTable</zorder>
    <zorder>saveBtn</zorder>
    <zorder></zorder>
-   <zorder>horizontalSpacer_5</zorder>
   </widget>
  </widget>
  <layoutdefault spacing="6" margin="11"/>

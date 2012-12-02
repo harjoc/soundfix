@@ -47,10 +47,20 @@ bool read_wav(const char *fname, short **samples, int *len)
         if (fmtJunk)
             fseek(f, fmtJunk, SEEK_CUR);
 
-		if (fread(&data, 1, sizeof(data), f) != sizeof(data))
-			BREAK;
-		if (data.SubchunkID != 0x61746164)
-			BREAK;
+        for (;;) {
+            if (fread(&data, 1, sizeof(data), f) != sizeof(data))
+                BREAK;
+
+            if (data.SubchunkID == 0x5453494c) { // LIST
+                fseek(f, data.SubchunkSize, SEEK_CUR);
+                continue;
+            } else {
+                break;
+            }
+        }
+
+        if (data.SubchunkID != 0x61746164) // data
+            BREAK;
 
 		int count = data.SubchunkSize / 2;
 		if (count <= 0 || count > 100000000)

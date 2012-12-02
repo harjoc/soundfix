@@ -75,6 +75,8 @@ struct Song {
     void get_bspec();
     bool bspec_confidence();
     void process();
+
+    void scale_tempo(double ratio);
 };
 
 Song s1;
@@ -162,11 +164,10 @@ void Song::get_peaks()
 
 void Song::get_bspec()
 {
-#if 1
     const int range = bspec_range = min(bspec_maxrange, npoints/3);
 
     // don't correlate over more than 90 secs
-    const int correl_range = min(npoints-range*2, 90*44100/step);
+    const int correl_range = min(npoints-range*2, /*debug*/ 90*44100/step);
 
     for (int ofs=0; ofs < range; ofs++)
     {
@@ -186,16 +187,17 @@ void Song::get_bspec()
             }
         }
 
-        bspec[ofs] = (int)(score / (npoints-range));
-        printf("%d\t", bspec[ofs]);
+        bspec[ofs] = (int)(score / correl_range);
+
+        static char stars[] = "**************************************************";
+        int nstars = min((int)sqrt((double)bspec[ofs]), sizeof(stars)-1);
+        printf("%3d: %.*s\n", bspec[ofs], nstars, stars);
     }
     printf("\n\n");
-#endif
 }
 
 bool Song::bspec_confidence()
 {
-#if 1
     int lastmax = 0;
     int lastmin = 0;
     double dists[bspec_maxrange];
@@ -262,14 +264,32 @@ bool Song::bspec_confidence()
     gravg /= dists_len;
 
     printf("confidence: %.2f\n", var2/gravg);
-#endif
     return true;
 }
 
 void Song::process()
 {
     get_peaks();
-    //get_bspec();
+    get_bspec();
+}
+
+void Song::scale_tempo(double ratio)
+{
+    int new_npoints = (int)(npoints/ratio);
+    int *new_points = new int[new_npoints];
+    int *new_deriv = new int[new_npoints];
+
+    for (int p=0; p<new_npoints; p++) {
+        new_points[p] = points[(int)(p*ratio)];
+        new_deriv[p] = deriv[(int)(p*ratio)];
+    }
+
+    delete points;
+    delete deriv;
+
+    npoints = new_npoints;
+    points = new_points;
+    deriv = new_deriv;
 }
 
 // TODO make threading dynamic
@@ -340,6 +360,8 @@ void match()
     #else
     match_func(0);
     #endif
+
+    printf("match threads finished\n");
 
     int nscores = s2.npoints-1 + s1.npoints-1;
     qsort(scores, nscores, sizeof(Score), int_cmp);
@@ -456,10 +478,50 @@ void clusterScores(int minOffsets, int maxOffsets, int minConfidence, int *retOf
     *retOffsets = nret;
 }
 
+
+inline int sgn(int x) { return !x ? 0 : ((x < 0) ? -1 : 1); }
+
+double bspec_ratio()
+{
+    double bestRatio = 0;
+    double bestScore = 0;
+
+    int n = min(s1.bspec_range, s2.bspec_range);
+
+    for (double m=0.7; m < 1.4; m += 0.001) {
+        int score = 0;
+        int xmax = min(n, (int)(n/m));
+        for (int x1=50; x1<xmax; x1++) {
+            int x2 = (int)(x1*m);
+            int d1 = sgn(s1.bspec[x1] - s1.bspec[x1-1]);
+            int d2 = sgn(s2.bspec[x2] - s2.bspec[x2-1]);
+            score += d1*d2;
+        }
+
+        if (bestScore < score) {
+            bestScore = score;
+            bestRatio = m;
+        }
+
+        char stars[] = "**************************************************";
+
+        double scorev = max(score, 0);
+        int scorep = (int)sqrt(scorev);
+        printf("%.1f\t%d\t%.*s\n", m*100.0, score, min(sizeof(stars)-1, scorep), stars);
+    }
+
+    printf("best ratio: %.1f\n\n",bestRatio*100.0);
+
+    if (fabs((1.0 - bestRatio)*100.0) <= 0.21)
+        bestRatio = 1.0;
+
+    return bestRatio;
+}
+
 // five steps
 bool specpp_compare(const char *fname1, const char *fname2, SpecppCallback cb, void *cb_arg,
         int minOffsets, int maxOffsets, int minConfidence, int *retOffsets, int *offsets, float *confidences,
-        float *)
+        double *tempoRatio)
 {
     *retOffsets = 0;
     callback_fn = cb;
@@ -480,9 +542,6 @@ bool specpp_compare(const char *fname1, const char *fname2, SpecppCallback cb, v
 
     if (!s2.load()) return false;
 
-    delete scores;
-    scores = new Score[s2.npoints-1 + s1.npoints-1];
-
     if (callback_fn(callback_arg, "Processing YouTube audio track...", 400))
         return true;
 
@@ -492,6 +551,19 @@ bool specpp_compare(const char *fname1, const char *fname2, SpecppCallback cb, v
         return true;
 
     s2.process();
+
+    bool conf1 = s1.bspec_confidence();
+    bool conf2 = s2.bspec_confidence();
+    if (conf1 && conf2) {
+        *tempoRatio = bspec_ratio();
+        if (*tempoRatio)
+            s2.scale_tempo(*tempoRatio);
+    } else {
+        *tempoRatio = 1.0;
+    }
+
+    delete scores;
+    scores = new Score[s2.npoints-1 + s1.npoints-1];
 
     if (callback_fn(callback_arg, "Synchronizing audio tracks...", 580))
         return true;
@@ -508,18 +580,26 @@ bool specpp_compare(const char *fname1, const char *fname2, SpecppCallback cb, v
     return true;
 }
 
-bool specpp_mix(int ofs, const char *fname)
+bool specpp_mix(int ofs, const char *fname_tempo, const char *fname_out)
 {
-    FILE *f = fopen(fname, "wb");
+    // s1, tempo-adjusted version
+    short *s1t_isamples=0;
+    int s1t_nsamp=0;
+
+    if (!read_wav(fname_tempo, &s1t_isamples, &s1t_nsamp))
+        return false;
+
+    FILE *f = fopen(fname_out, "wb");
     if (!f) {
-        printf("can't create %s\n", fname);
+        printf("can't create %s\n", fname_out);
+        delete s1t_isamples;
         return false;
     }
 
-    // reference system is with 0 at s1.0
+    // reference system is with 0 at s1t.0
     // begin, end
     int b1 = 0;
-    int e1 = s1.nsamp;
+    int e1 = s1t_nsamp;
     int b2 = ofs;
     int e2 = ofs + s2.nsamp;
 
@@ -564,7 +644,7 @@ bool specpp_mix(int ofs, const char *fname)
 
         if ((p-b)/44100 % 6 < 3)
             for (int i=0; i<buflen; i++)
-                buf[i] = s1.isamples[p+i];
+                buf[i] = s1t_isamples[p+i];
         else
             for (int i=0; i<buflen; i++)
                 buf[i] = s2.isamples[-ofs+p+i]/2;
@@ -575,6 +655,7 @@ bool specpp_mix(int ofs, const char *fname)
     }
 
     fclose(f);
+    delete s1t_isamples;
 
     return true;
 }

@@ -74,7 +74,7 @@ private:
     void continueIdentification();
     void cleanupIdentification();
     bool getVideoInfo();
-    void extractAudio();
+    bool extractAudio();
     bool loadCachedSongName();
     void collectCookies();
     void getSession();
@@ -93,6 +93,7 @@ private:
     bool saveThumb(const QByteArray &data);
 
     // youtube download
+    bool findCachedYoutubeVideo(const QString &videoId);
     void startYoutubeDown(const QString &videoId);
     void cleanupYoutubeDown();
 
@@ -159,6 +160,7 @@ private:
     int offsets[MAX_SYNC_OFFSETS];
     float confidences[MAX_SYNC_OFFSETS];
     int retOffsets;
+    double tempoRatio;
 
     Phonon::MediaObject *player;
     int playingRow;

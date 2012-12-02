@@ -7,6 +7,6 @@ void specpp_cleanup();
 
 bool specpp_compare(const char *fname1, const char *fname2, SpecppCallback cb, void *cb_arg,
         int minOffsets, int maxOffsets, int minConfidence, int *retOffsets, int *offsets, float *confidences,
-        float *tempoRatio);
+        double *tempoRatio);
 
-bool specpp_mix(int ofs, const char *fname);
+bool specpp_mix(int ofs, const char *fname_tempo, const char *fname_out);
