@@ -26,34 +26,35 @@
 /*
 - bpm ratio
 - possibly fix tempo
-- cache midomi replies, ca sa poti testa totu rapid
-- cache youtube search results
+d cache midomi replies, ca sa poti testa totu rapid
+d cache youtube search results
 d offsets are wrong from 2nd on
-- sync issues
+d sync issues
 - normalize volume
 d utf8 in midomi response
+- tooltips for youtube result urls
 - nu merge sa downloadezi bachata e cocolata daca il cauti manual (versiunea daniela blabla)
 - schimba labelu cu download progress imediat, sa vada useru ca ai luat click-ul
 - api pt specpp comun pt soundfix si specpp, sau lasa-l doar in soundfix
 - youtube-dl uses ipv6
 - progressing progress bars
-- mags ala vad ca nu conteaza la sincronizare (match)
+d mags ala vad ca nu conteaza la sincronizare (match)
 - timeout for midomi
 - if offset is negative it just uses 0 probably
-- append to log
+d append to log
 d it loads localhost for youtube play urls
 - update default button after each step
-- margin for youtube titles
 - make progressbars modal (on top)
 - handle less than 10 youtube results
-- if the test audio ends while you have the save dialog open, the "play" icon dissapears from the button
+- if the test audio ends while you have the save dialog open, the "play" icon disappears from the button
 d if flv is complete youtube-dl doesn't show dl location. find(vid.*) ?
-- need a test (bpm/strong beats) for when the song doesn't match
+d need a test (bpm/strong beats) for when the song doesn't match
 - "cannot synchronize audio tracks" appears; progress bar stuck at "loading ... video"
 - ramane synchronizing audio tracks... desi se termina si il poti canta/salva
 - cleanup when redoing steps
 - se blocheaza daca dai download youtube a doua oara dupa ce termina d/l (probabil fixed daca faci cleanup)
-- offsetstable->clearcontents leaves the grid for items there
+d offsetstable->clearcontents leaves the grid for items there
+- margin for youtube titles
 */
 
 SoundFix::SoundFix(QWidget *parent) :
@@ -154,8 +155,8 @@ void SoundFix::appReady()
 
     return;
 
-    recordingName = "C:\\Users\\bogdan\\Downloads\\Jose Luis _ Pamela Salsa dancing.mp4";
-    ui->videoEdit->setText(recordingName);        
+    recordingPath = "C:\\Users\\bogdan\\Downloads\\Jose Luis _ Pamela Salsa dancing.mp4";
+    ui->videoEdit->setText(recordingPath);
     ui->songEdit->setText("Domenic M - Señora");
 
     //startIdentification();
@@ -228,11 +229,13 @@ void SoundFix::on_browseBtn_clicked()
 {
     cleanupIdentification();
 
-    recordingName = QFileDialog::getOpenFileName(this, "Open Video", QString());
-    if (recordingName.isNull())
+    recordingPath = QFileDialog::getOpenFileName(this, "Open Video", QString());
+    if (recordingPath.isNull())
         return;
 
-    ui->videoEdit->setText(QDir::toNativeSeparators(recordingName));
+    recordingName = QFileInfo(recordingPath).fileName();
+
+    ui->videoEdit->setText(QDir::toNativeSeparators(recordingPath));
 
     startIdentification();
 }
@@ -310,7 +313,7 @@ bool SoundFix::getVideoInfo()
     printf("getting video info\n");
 
     QProcess ffmpegInfo;
-    ffmpegInfo.start("tools/ffmpeg.exe", QStringList() << "-i" << recordingName);
+    ffmpegInfo.start("tools/ffmpeg.exe", QStringList() << "-i" << recordingPath);
     if (!ffmpegInfo.waitForFinished())
         { error("Video load error", "Cannot get video information."); return false; }
 
@@ -355,23 +358,25 @@ void SoundFix::extractAudio()
 
     printf("extracting sample from offset: %d\n", sampleOffset/1000);
 
-    QFile("data/sample.wav").remove();
-    QFile("data/sample.ogg").remove();
-    QFile("data/sample.spx").remove();
+    QFile(QString("data/%1 - sample.wav").arg(recordingName)).remove();
+    QFile(QString("data/%1 - sample.ogg").arg(recordingName)).remove();
+    QFile(QString("data/%1 - sample.spx").arg(recordingName)).remove();
 
     // should just chdir to data in processes
 
     QProcess ffmpegWav;
-    ffmpegWav.start("tools/ffmpeg.exe", QStringList() << "-i" << recordingName <<
+    ffmpegWav.start("tools/ffmpeg.exe", QStringList() <<
+            "-i" << recordingPath <<
             "-f" << "wav" <<
             "-ac" << "1" <<
             "-ar" << "44100" <<
-            "data/sample.wav");
+            QString("data/%1 - sample.wav").arg(recordingName));
     if (!ffmpegWav.waitForFinished())
         { error("Audio load error", "Cannot extract audio sample."); return; }
 
     QProcess ffmpegOgg;
-    ffmpegOgg.start("tools/ffmpeg.exe", QStringList() << "-i" << "data/sample.wav" <<
+    ffmpegOgg.start("tools/ffmpeg.exe", QStringList() <<
+            "-i" << QString("data/%1 - sample.wav").arg(recordingName) <<
             "-acodec" << "libspeex" <<
             "-ac" << "1" <<
             "-ar" << "8000" <<
@@ -379,7 +384,7 @@ void SoundFix::extractAudio()
             "-t" << QString::number(SAMPLE_MSEC/1000) <<
             "-cbr_quality" << "10" <<
             "-compression_level" << "10" <<
-            "data/sample.ogg");
+            QString("data/%1 - sample.ogg").arg(recordingName));
     if (!ffmpegOgg.waitForFinished())
         { error("Audio conversion error", "Cannot compress audio sample."); return; }
 
@@ -387,8 +392,9 @@ void SoundFix::extractAudio()
 
     printf("converting to raw speex\n");
 
-    QFile ogg("data/sample.ogg");
-    QFile spx("data/sample.spx");
+    QFile ogg(QString("data/%1 - sample.ogg").arg(recordingName));
+    QFile spx(QString("data/%1 - sample.spx").arg(recordingName));
+
     if (!ogg.open(QIODevice::ReadOnly))
         { error("Audio sample conversion error", "Cannot open sample."); return; }
     if (!spx.open(QIODevice::WriteOnly))
@@ -459,8 +465,29 @@ void SoundFix::extractAudio()
     ogg.close();
     spx.close();
 
-    identSubstep++;
-    continueIdentification();
+    if (loadCachedSongName()) {
+        cleanupIdentification();
+    } else {
+        identSubstep++;
+        continueIdentification();
+    }
+}
+
+bool SoundFix::loadCachedSongName()
+{
+    QFile songFile(QString("data/%1 - song.txt").arg(recordingName));
+    if (!songFile.open(QFile::ReadOnly))
+        return false;
+
+    QTextStream songStream(&songFile);
+    songStream.setCodec("UTF-8");
+    QString artist = songStream.readLine().trimmed();
+    QString track = songStream.readLine().trimmed();
+    if (artist.isEmpty() || track.isEmpty())
+        return false;
+
+    ui->songEdit->setText(QString("%1 - %2").arg(artist, track));
+    return true;
 }
 
 void SoundFix::sockConnected()
@@ -522,7 +549,7 @@ void SoundFix::sockConnected()
 void SoundFix::sendSpeexChunk()
 {
     if (!speexFile.isOpen()) {
-        speexFile.setFileName("data/sample.spx");
+        speexFile.setFileName(QString("data/%1 - sample.spx").arg(recordingName));
         if (!speexFile.open(QFile::ReadOnly)) {
             error("Error opening audio sample", "Cannot open audio sample for identification.");
             cleanupIdentification();
@@ -696,6 +723,14 @@ void SoundFix::processSearchResponse()
     QString artist = QString::fromUtf8(sockBuf.data() + artistPos, artistEnd-artistPos);
 
     ui->songEdit->setText(QString("%1 - %2").arg(artist, track));
+
+    QFile songFile(QString("data/%1 - song.txt").arg(recordingName));
+    if (songFile.open(QFile::WriteOnly)) {
+        QTextStream songStream(&songFile);
+        songStream.setCodec("UTF-8");
+        songStream << artist << "\n";
+        songStream << track << "\n";
+    }
 }
 
 void SoundFix::sockError(QAbstractSocket::SocketError)
@@ -762,7 +797,7 @@ void SoundFix::on_searchBtn_clicked()
     // TODO check that step 1 completed
 
     QByteArray songName = unaccent(ui->songEdit->text()).toAscii();
-    QString cleanSongName;
+    cleanSongName.clear();
     QString songQuery;
 
     int lc = 0;
@@ -782,19 +817,50 @@ void SoundFix::on_searchBtn_clicked()
         songQuery.append(q);
     }
 
+    cleanSongName = cleanSongName.trimmed();
+
     ui->songLabel->setText(QString("<a href=\"http://www.youtube.com/results?search_query=%1\">%2</a>")
             .arg(songQuery).arg(cleanSongName));
 
-    startYoutubeSearch(cleanSongName);
+    cleanupYoutubeSearch();
+
+    if (!loadCachedYoutubeResults())
+        startYoutubeSearch();
 }
 
 #define YOUTUBE_RESULTS 10
 // TODO there may not be 10 results ... update maxpos at youtube-dl eof
 
-void SoundFix::startYoutubeSearch(const QString &cleanSongName)
-{
-    cleanupYoutubeSearch();
 
+bool SoundFix::loadCachedYoutubeResults()
+{
+    int i=0;
+    for (; i<YOUTUBE_RESULTS; i++) {
+        QFile resultFile(QString("data/%1 - result %2.txt").arg(cleanSongName).arg(i+1));
+        if (!resultFile.open(QFile::ReadOnly))
+            break;
+
+        QTextStream resultStream(&resultFile);
+        resultStream.setCodec("UTF-8");
+
+        QString title     = resultStream.readLine();
+        QString url       = resultStream.readLine();
+        QString thumbnail = resultStream.readLine();
+
+        youtubeLines[0] = title;
+        youtubeLines[1] = url;
+        youtubeLines[2] = thumbnail;
+
+        thumbsFinished = i;
+        youtubeAddResult();
+        showThumb();
+    }
+
+    return i>0;
+}
+
+void SoundFix::startYoutubeSearch()
+{    
     printf("\nyoutube search\n");
 
     identProgressBar.setLabelText("Starting YouTube video search...");
@@ -812,8 +878,6 @@ void SoundFix::startYoutubeSearch(const QString &cleanSongName)
 
     connect(thumbMgr, SIGNAL(finished(QNetworkReply*)),
             this, SLOT(thumbnailFinished(QNetworkReply*)));
-
-    cleanSongName.isEmpty();
 
     youtubeSearchProc.setWorkingDirectory("data");
 
@@ -909,7 +973,8 @@ void SoundFix::showThumb()
     QWidget* w2 = new QWidget;
     QLabel *label = new QLabel(w2);
 
-    QPixmap pixmap(QString("data/%1.jpg").arg(thumbsFinished));
+    QString thumbFname = QString("data/%1 - result %2.jpg").arg(cleanSongName).arg(thumbsFinished);
+    QPixmap pixmap(thumbFname);
     QPixmap scaledPix = pixmap.scaled(90, 60);
     label->setPixmap(scaledPix);
 
@@ -940,6 +1005,15 @@ void SoundFix::youtubeReadyRead()
             printf("thumbnail: [%s]\n", youtubeLines[2].toAscii().data());
             printf("\n");
 
+            QFile resultFile(QString("data/%1 - result %2.txt").arg(cleanSongName).arg(youtubeLineNo/3 - 1));
+            if (resultFile.open(QFile::WriteOnly)) {
+                QTextStream resultStream(&resultFile);
+                resultStream.setCodec("UTF-8");
+                resultStream << youtubeLines[0] << "\n";
+                resultStream << youtubeLines[1] << "\n";
+                resultStream << youtubeLines[2] << "\n";
+            }
+
             youtubeAddResult();
 
             thumbUrls.append(youtubeLines[2]);
@@ -960,7 +1034,7 @@ void SoundFix::startThumbnail()
 
 bool SoundFix::saveThumb(const QByteArray &data)
 {
-    QFile f(QString("data/%1.jpg").arg(thumbsFinished));
+    QFile f(QString("data/%1 - result %2.jpg").arg(cleanSongName).arg(thumbsFinished));
     if (!f.open(QFile::WriteOnly))
         return false;
 
@@ -1208,8 +1282,11 @@ void SoundFix::runAudioSync()
     // specpp_compare calls our callback with labels and
     // progress values [0...1000] which we need to offset by whatever (see setMaximum)
 
+    QString wavName = QString("data/%1 - sample.wav").arg(recordingName);
+
     // nondebug
-    if (!specpp_compare("data/youtube.wav", "data/sample.wav", progressCallback, this,
+    if (!specpp_compare("data/youtube.wav", wavName.toAscii().data(),
+            progressCallback, this,
             //scores
             3, MAX_SYNC_OFFSETS, 75, &retOffsets, offsets, confidences, NULL))
         { error("Audio sync error", "Cannot synchronize audio tracks."); return; }
@@ -1349,7 +1426,7 @@ void SoundFix::on_saveBtn_clicked()
         "-i" << "data/youtube.wav" <<
         "-ss" << "0" <<
         "-t" << t <<
-        "-i" << recordingName <<
+        "-i" << recordingPath <<
         "-map" << "0:0" <<
         "-map" << "1:video" <<
         "-f" << "mp4" <<

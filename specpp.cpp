@@ -176,7 +176,6 @@ void Song::get_bspec()
 
         long long score=0;
 
-        // aici nu lua mai mult de 90sec
         for (int o = 0; o<correl_range; o++) {
             for (int f=0; f<period/2; f++) {
                 int x = amp1[o*period/2+f] * 100 / mags[f];

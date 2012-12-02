@@ -75,6 +75,7 @@ private:
     void cleanupIdentification();
     bool getVideoInfo();
     void extractAudio();
+    bool loadCachedSongName();
     void collectCookies();
     void getSession();
     void postSample();
@@ -82,7 +83,8 @@ private:
     void processSearchResponse();
 
     // youtube search
-    void startYoutubeSearch(const QString &cleanSongName);
+    bool loadCachedYoutubeResults();
+    void startYoutubeSearch();
     void cleanupYoutubeSearch();
     void youtubeUpdateProgress();
     void youtubeAddResult();
@@ -110,6 +112,7 @@ private:
     int identSubstep;
     QProgressDialog identProgressBar;
 
+    QString recordingPath;
     QString recordingName;
     int durationMsec;
 
@@ -132,6 +135,7 @@ private:
     QFile speexFile;    
 
     // youtube search
+    QString cleanSongName;
     QProcess youtubeSearchProc;
     int youtubeLineNo;
     QString youtubeLines[3];

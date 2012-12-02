@@ -5,7 +5,7 @@
 
 int main(int argc, char *argv[])
 {
-    freopen("data/soundfix.log", "wb", stdout);
+    freopen("data/soundfix.log", "a+b", stdout);
     setbuf(stdout, NULL);
 
     QApplication a(argc, argv);
