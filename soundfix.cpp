@@ -24,8 +24,13 @@
 #define TEST_IDENT_SRV "localhost"
 
 /*
-- bpm ratio
-- possibly fix tempo
+d bpm ratio
+d possibly fix tempo
+- de ce iti da bspec_confidence aiurea
+d best of juan matos (calla buey) ... e modificata melodia dar merge
+d crapa cu 'best cuban salsa dancing' si yt din k797DByfmP8.mp4 (old guy)
+d da zero peste tot cu mpjw56YFjMo.mp4
+d crapa cu best of juan matos kimberli - calla buey
 d cache midomi replies, ca sa poti testa totu rapid
 d cache youtube search results
 d offsets are wrong from 2nd on
@@ -149,7 +154,7 @@ void SoundFix::appReady()
 {
     return;
 
-    if (!specpp_compare("../specpp/data/dame.wav", "../specpp/data/dame2.wav", nop_progress, this,
+    if (!specpp_compare(L"../specpp/data/dame.wav", L"../specpp/data/dame2.wav", nop_progress, this,
             //scores
             3, MAX_SYNC_OFFSETS, 75, &retOffsets, offsets, confidences, NULL))
         { error("Audio sync error", "Cannot synchronize audio tracks."); return; }
@@ -1316,7 +1321,7 @@ void SoundFix::runAudioSync()
     // progress values [0...1000] which we need to offset by whatever (see setMaximum)
 
     // nondebug
-    if (!specpp_compare(youtubeSampleFname.toAscii().data(), recordingSampleFname.toAscii().data(),
+    if (!specpp_compare(youtubeSampleFname.utf16(), recordingSampleFname.utf16(),
             progressCallback, this,
             //scores
             3, MAX_SYNC_OFFSETS, 75, &retOffsets, offsets, confidences, &tempoRatio))
@@ -1460,7 +1465,7 @@ void SoundFix::playOffset()
 
     QString youtubeTempoFname = QString("data/%1 - tempo.wav").arg(youtubeDownDestination);
 
-    if (!specpp_mix((int)(offsets[row] * tempoRatio), youtubeTempoFname.toAscii().data(), "data/mix.wav"))
+    if (!specpp_mix((int)(offsets[row] * tempoRatio), youtubeTempoFname.utf16(), "data/mix.wav"))
         { error("Error mixing audio tracks", "Could not create audio mix."); return; }
 
     playSyncAudio(row);

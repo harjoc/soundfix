@@ -22,4 +22,4 @@ struct WavData {
     int SubchunkSize;
 };
 
-bool read_wav(const char *fname, short **data, int *len);
+bool read_wav(const wchar_t *fname, short **data, int *len);

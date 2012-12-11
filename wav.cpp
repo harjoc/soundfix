@@ -4,7 +4,7 @@
 
 #pragma warning(disable:4996)
 
-bool read_wav(const char *fname, short **samples, int *len)
+bool read_wav(const wchar_t *fname, short **samples, int *len)
 {
 	FILE *f = NULL; 
 	short *buf = NULL;
@@ -17,7 +17,7 @@ bool read_wav(const char *fname, short **samples, int *len)
 	#define BREAK { line = __LINE__; break; }
 
 	do {
-		f = fopen(fname, "rb");
+        f = _wfopen(fname, L"rb");
 		if (!f) BREAK;
 
 		if (fread(&hdr, 1, sizeof(hdr), f) != sizeof(hdr))

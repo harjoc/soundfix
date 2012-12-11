@@ -44,7 +44,7 @@ struct Score {
 Score *scores=0;
 
 struct Song {
-    const char *fname;
+    const wchar_t *fname;
     short *isamples;
     int nsamp;
 
@@ -105,6 +105,11 @@ bool Song::load()
     mags = new int[period/2];
 
     bspec = new int[bspec_maxrange];
+
+    memset(ampbuf, 0, sizeof(int)*period/2*npoints);
+    memset(deriv, 0, sizeof(int)*npoints);
+    memset(mags, 0, sizeof(int)*period/2);
+    memset(bspec, 0, sizeof(int)*bspec_maxrange);
 
     for (int pos=0; pos<npoints; pos++) {
         for (int substep=0; substep<substeps; substep++) {
@@ -169,6 +174,8 @@ void Song::get_bspec()
     // don't correlate over more than 90 secs
     const int correl_range = min(npoints-range*2, /*debug*/ 90*44100/step);
 
+    printf("range=%d correl_range=%d\n", range, correl_range);
+
     for (int ofs=0; ofs < range; ofs++)
     {
         int *amp1 = ampbuf;
@@ -178,20 +185,25 @@ void Song::get_bspec()
         long long score=0;
 
         for (int o = 0; o<correl_range; o++) {
+            long long oscore=0;
             for (int f=0; f<period/2; f++) {
                 int x = amp1[o*period/2+f] * 100 / mags[f];
                 int y = amp2[o*period/2+f] * 100 / mags[f];
                 int z = amp3[o*period/2+f] * 100 / mags[f];
                 int c = x*y*z/50000;
-                score += c;
+                oscore += c;
             }
-        }
+            //printf("%llu\t", oscore);
+            score += oscore;
+        }        
+
+        //printf("\n");
 
         bspec[ofs] = (int)(score / correl_range);
 
         static char stars[] = "**************************************************";
         int nstars = min((int)sqrt((double)bspec[ofs]), sizeof(stars)-1);
-        printf("%3d: %.*s\n", bspec[ofs], nstars, stars);
+        printf("%d: %.*s\n", bspec[ofs], nstars, stars);
     }
     printf("\n\n");
 }
@@ -279,6 +291,9 @@ void Song::scale_tempo(double ratio)
     int *new_points = new int[new_npoints];
     int *new_deriv = new int[new_npoints];
 
+    memset(new_points, 0, sizeof(int)*new_npoints);
+    memset(new_deriv, 0, sizeof(int)*new_npoints);
+
     for (int p=0; p<new_npoints; p++) {
         new_points[p] = points[(int)(p*ratio)];
         new_deriv[p] = deriv[(int)(p*ratio)];
@@ -329,10 +344,13 @@ DWORD WINAPI match_func(VOID *param)
             int b = min(b1,b2);
 
             int score = 0;
-                
+
             for (int p=a; p<b; p++) {
+                assert(p >= 0 && p < s1.npoints);
+                assert(-ofs+p >= 0 && -ofs+p <s2.npoints);
+
                 int c = s1.deriv[p]*s2.deriv[-ofs+p];
-                assert(c == 1 || c == -1);
+                assert(c == 1 || c == -1 || c == 0);
                 score += c;
             }
 
@@ -519,7 +537,7 @@ double bspec_ratio()
 }
 
 // five steps
-bool specpp_compare(const char *fname1, const char *fname2, SpecppCallback cb, void *cb_arg,
+bool specpp_compare(const wchar_t *fname1, const wchar_t *fname2, SpecppCallback cb, void *cb_arg,
         int minOffsets, int maxOffsets, int minConfidence, int *retOffsets, int *offsets, float *confidences,
         double *tempoRatio)
 {
@@ -580,7 +598,7 @@ bool specpp_compare(const char *fname1, const char *fname2, SpecppCallback cb, v
     return true;
 }
 
-bool specpp_mix(int ofs, const char *fname_tempo, const char *fname_out)
+bool specpp_mix(int ofs, const wchar_t *fname_tempo, const char *fname_out)
 {
     // s1, tempo-adjusted version
     short *s1t_isamples=0;
