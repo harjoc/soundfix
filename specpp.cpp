@@ -572,11 +572,11 @@ bool specpp_compare(const wchar_t *fname1, const wchar_t *fname2, SpecppCallback
 
     bool conf1 = s1.bspec_confidence();
     bool conf2 = s2.bspec_confidence();
-    if (conf1 && conf2) {
+    /*if (conf1 && conf2) {
         *tempoRatio = bspec_ratio();
         if (*tempoRatio)
             s2.scale_tempo(*tempoRatio);
-    } else {
+    } else */{
         *tempoRatio = 1.0;
     }
 

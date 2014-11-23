@@ -27,6 +27,7 @@
 d bpm ratio
 d possibly fix tempo
 - de ce iti da bspec_confidence aiurea
+- cand cauti "Spanish Harlem Orchestra - Que Bonito" a doua oara ia rezultate aiurea din cache
 d best of juan matos (calla buey) ... e modificata melodia dar merge
 d crapa cu 'best cuban salsa dancing' si yt din k797DByfmP8.mp4 (old guy)
 d da zero peste tot cu mpjw56YFjMo.mp4
@@ -38,6 +39,7 @@ d sync issues
 d nu iti da eroare daca esueaza ffmpeg-encode-u (si probabil info, etc)
 - normalize volume
 d utf8 in midomi response
+- fa-l sa tina cont de tempo ratio din ui
 - tooltips for youtube result urls
 - nu merge sa downloadezi bachata e cocolata daca il cauti manual (versiunea daniela blabla)
 - schimba labelu cu download progress imediat, sa vada useru ca ai luat click-ul
@@ -267,7 +269,7 @@ void SoundFix::startIdentification()
     identProgressBar.setMinimum(0);
     identProgressBar.setMaximum(100);
     identProgressBar.setValue(0);
-    identProgressBar.setMinimumDuration(1000);
+    identProgressBar.setMinimumDuration(100);
 
     identSubstep = IDENTIFY_EXTRACT_AUDIO;
     continueIdentification();
@@ -313,7 +315,7 @@ void SoundFix::continueIdentification()
     }
 }
 
-#define SAMPLE_MSEC (18*1000)
+#define SAMPLE_MSEC (24*1000)
 
 bool SoundFix::getVideoInfo()
 {
@@ -359,7 +361,7 @@ bool SoundFix::extractAudio()
 
     int sampleOffset = 0;
     if (durationMsec > SAMPLE_MSEC)
-        sampleOffset = (durationMsec - SAMPLE_MSEC) / 3;
+        sampleOffset = (durationMsec - SAMPLE_MSEC) / 2;
 
     // ---
 
@@ -876,7 +878,7 @@ void SoundFix::startYoutubeSearch()
     identProgressBar.setMinimum(0);
     identProgressBar.setMaximum(2*YOUTUBE_RESULTS);
     identProgressBar.setValue(0);
-    identProgressBar.setMinimumDuration(500);
+    identProgressBar.setMinimumDuration(100);
 
     ui->youtubeTable->setRowCount(0);
 
@@ -1292,7 +1294,7 @@ void SoundFix::runAudioSync()
     syncProgressBar.setCancelButtonText("Cancel");
     syncProgressBar.setMinimum(0);
     syncProgressBar.setMaximum(1400);
-    syncProgressBar.setMinimumDuration(1);
+    syncProgressBar.setMinimumDuration(100);
 
     syncProgressBar.setLabelText("Extracting audio...");
     syncProgressBar.setValue(0);
@@ -1518,7 +1520,7 @@ void SoundFix::on_saveBtn_clicked()
     encodeProgress.setLabelText("Encoding video...");
     encodeProgress.setMinimum(0);
     encodeProgress.setMaximum(100);
-    encodeProgress.setMinimumDuration(1000);
+    encodeProgress.setMinimumDuration(100);
     encodeProgress.setValue(0);
     encodeProgress.show();
 
