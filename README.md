@@ -5,6 +5,8 @@ SoundFix identifies the song in your recorded video, looks it up on YouTube,
 downloads a high-quality version, synchronizes it with your recorded audio 
 and puts it back into the video you recorded.
 
+See it in action here: https://www.youtube.com/watch?v=AVIHpaNQLS0
+
 FFmpeg and youtube-dl are used for video downloading and conversion. Get them
 from the project websites below and put the ffmpeg.exe and youtube-dl.exe in
 the tools/ directory:
