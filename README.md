@@ -9,6 +9,8 @@ Typical usage:
 
 [![SoundFix usage](/usage-preview.png?raw=true)](http://www.youtube.com/watch?v=AVIHpaNQLS0)
 
+Latest build: http://patraulea.com/files/soundfix-160303.zip
+
 FFmpeg and youtube-dl are used for video downloading and conversion. Get them
 from the project websites below and put the ffmpeg.exe and youtube-dl.exe in
 the tools/ directory:
