@@ -7,7 +7,7 @@ and puts it back into the video you recorded.
 
 Typical usage: 
 
-[![SoundFix usage](http://img.youtube.com/vi/AVIHpaNQLS0/0.jpg)](http://www.youtube.com/watch?v=AVIHpaNQLS0)
+[![SoundFix usage](/usage-preview.png?raw=true)](http://www.youtube.com/watch?v=AVIHpaNQLS0)
 
 FFmpeg and youtube-dl are used for video downloading and conversion. Get them
 from the project websites below and put the ffmpeg.exe and youtube-dl.exe in
